@@ -37,7 +37,7 @@
             name="file-upload"
             type="file"
             class="sr-only"
-            accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg"
+            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/flac,audio/ogg"
             @change="handleFileSelect"
           />
         </label>
@@ -146,18 +146,56 @@ interface APIResponse {
   isLocked?: boolean
 }
 
+// 허용된 오디오 파일 확장자 및 MIME 타입
+const ALLOWED_EXTENSIONS = ['.wav', '.mp3', '.m4a', '.flac', '.ogg']
+const ALLOWED_MIME_TYPES = [
+  'audio/wav',
+  'audio/wave',
+  'audio/x-wav',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/mp4',      // m4a 파일용
+  'audio/x-m4a',    // m4a 파일용
+  'audio/flac',
+  'audio/ogg',
+  'audio/vorbis'
+]
+
 const isDragging = ref(false)
 const selectedFile = ref<File | null>(null)
 const isConverting = ref(false)
 const transcriptionResult = ref('')
 const errorMessage = ref('')
 
+// 파일 유효성 검사 함수
+const isValidAudioFile = (file: File): boolean => {
+  // 확장자 검사
+  const fileName = file.name.toLowerCase()
+  const hasValidExtension = ALLOWED_EXTENSIONS.some(ext => fileName.endsWith(ext))
+  
+  // MIME 타입 검사
+  const hasValidMimeType = ALLOWED_MIME_TYPES.includes(file.type.toLowerCase())
+  
+  // MP4 동영상 차단 (video/mp4 타입)
+  if (file.type.toLowerCase().startsWith('video/')) {
+    return false
+  }
+  
+  return hasValidExtension || hasValidMimeType
+}
+
 const handleDrop = (e: DragEvent) => {
   isDragging.value = false
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
-    selectedFile.value = files[0]
-    errorMessage.value = ''
+    const file = files[0]
+    if (isValidAudioFile(file)) {
+      selectedFile.value = file
+      errorMessage.value = ''
+    } else {
+      errorMessage.value = '지원하지 않는 파일 형식입니다. WAV, MP3, M4A, FLAC, OGG 파일만 업로드 가능합니다.'
+      selectedFile.value = null
+    }
   }
 }
 
@@ -165,8 +203,16 @@ const handleFileSelect = (e: Event) => {
   const target = e.target as HTMLInputElement
   const files = target.files
   if (files && files.length > 0) {
-    selectedFile.value = files[0]
-    errorMessage.value = ''
+    const file = files[0]
+    if (isValidAudioFile(file)) {
+      selectedFile.value = file
+      errorMessage.value = ''
+    } else {
+      errorMessage.value = '지원하지 않는 파일 형식입니다. WAV, MP3, M4A, FLAC, OGG 파일만 업로드 가능합니다.'
+      selectedFile.value = null
+    }
+    // 파일 입력 초기화 (같은 파일을 다시 선택할 수 있도록)
+    target.value = ''
   }
 }
 
@@ -197,8 +243,8 @@ const convertToText = async (): Promise<void> => {
     
     const response = await $fetch<APIResponse>('/api/stt/upload', {
       method: 'POST',
-      body: formData,
-    })
+      body: formData
+    } as any)
     
     if (response.success && response.text) {
       transcriptionResult.value = response.text

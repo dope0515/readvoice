@@ -204,12 +204,22 @@ export async function getTranscriptionFullResult(
 
 /**
  * utterances에서 총 오디오 길이 계산 (분 단위)
+ * RTZR API 과금 정책: 파일/세션당 최소 10초로 집계
  */
 export function calculateAudioDuration(utterances: Array<{ duration: number }>): number {
+  // utterances의 duration은 밀리초(ms) 단위
   const totalMs = utterances.reduce((sum, u) => sum + u.duration, 0)
-  const totalMinutes = totalMs / 60000
-  // 최소 10초 (0.167분) 청구
-  return Math.max(totalMinutes, 0.167)
+  
+  // 밀리초를 초로 변환
+  const totalSeconds = totalMs / 1000
+  
+  // RTZR API 과금 정책: 최소 10초 집계
+  const billedSeconds = Math.max(totalSeconds, 10)
+  
+  // 초를 분으로 변환하여 반환
+  const billedMinutes = billedSeconds / 60
+  
+  return billedMinutes
 }
 
 /**
