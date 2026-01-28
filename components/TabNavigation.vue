@@ -18,17 +18,21 @@
   </div>
 </template>
 
-<script setup>
-defineProps({
-  activeTab: {
-    type: String,
-    required: true
-  }
-})
+<script setup lang="ts">
+interface Tab {
+  id: string
+  name: string
+}
 
-defineEmits(['change-tab'])
+defineProps<{
+  activeTab: string
+}>()
 
-const tabs = [
+defineEmits<{
+  'change-tab': [tabId: string]
+}>()
+
+const tabs: Tab[] = [
   { id: 'file', name: '파일 업로드' },
   { id: 'realtime', name: '실시간 음성 인식' }
 ]

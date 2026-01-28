@@ -119,8 +119,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
+
+interface APIResponse {
+  success: boolean
+  text?: string
+  transcriptionId?: string
+  usedMinutes?: number
+  remainingMinutes?: number
+  isLocked?: boolean
+}
 
 const isRecording = ref(false)
 const isProcessing = ref(false)
@@ -129,9 +138,9 @@ const transcriptionText = ref('')
 const errorMessage = ref('')
 const showPermissionInfo = ref(false)
 
-let mediaRecorder = null
-let recordingInterval = null
-let audioChunks = []
+let mediaRecorder: MediaRecorder | null = null
+let recordingInterval: number | null = null
+let audioChunks: Blob[] = []
 
 const statusText = computed(() => {
   if (isProcessing.value) return '처리 중'
@@ -145,13 +154,13 @@ const statusClass = computed(() => {
   return 'bg-gray-100 text-gray-800'
 })
 
-const formatTime = (seconds) => {
+const formatTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
 }
 
-const toggleRecording = async () => {
+const toggleRecording = async (): Promise<void> => {
   if (isRecording.value) {
     stopRecording()
   } else {
@@ -159,7 +168,7 @@ const toggleRecording = async () => {
   }
 }
 
-const startRecording = async () => {
+const startRecording = async (): Promise<void> => {
   try {
     errorMessage.value = ''
     showPermissionInfo.value = false
@@ -169,7 +178,7 @@ const startRecording = async () => {
     mediaRecorder = new MediaRecorder(stream)
     audioChunks = []
 
-    mediaRecorder.ondataavailable = (event) => {
+    mediaRecorder.ondataavailable = (event: BlobEvent) => {
       audioChunks.push(event.data)
     }
 
@@ -182,11 +191,11 @@ const startRecording = async () => {
     isRecording.value = true
     recordingTime.value = 0
 
-    recordingInterval = setInterval(() => {
+    recordingInterval = window.setInterval(() => {
       recordingTime.value++
     }, 1000)
 
-  } catch (error) {
+  } catch (error: any) {
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
       showPermissionInfo.value = true
       errorMessage.value = '마이크 권한이 거부되었습니다.'
@@ -196,7 +205,7 @@ const startRecording = async () => {
   }
 }
 
-const stopRecording = () => {
+const stopRecording = (): void => {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop()
     mediaRecorder.stream.getTracks().forEach(track => track.stop())
@@ -209,28 +218,38 @@ const stopRecording = () => {
   }
 }
 
-const processAudio = async (audioBlob) => {
+const processAudio = async (audioBlob: Blob): Promise<void> => {
   isProcessing.value = true
+  errorMessage.value = ''
   
   try {
-    // TODO: RTZR STT 실시간 API 연동 구현
-    // 현재는 시뮬레이션
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    const formData = new FormData()
+    formData.append('audio', audioBlob, 'recording.wav')
     
-    transcriptionText.value = '실시간 음성 인식 결과가 여기에 표시됩니다.\n\nAPI 연동 후 실제 음성이 텍스트로 변환되어 나타납니다.'
-  } catch (error) {
-    errorMessage.value = '음성 처리 중 오류가 발생했습니다.'
+    const response = await $fetch<APIResponse>('/api/stt/realtime', {
+      method: 'POST',
+      body: formData,
+    })
+    
+    if (response.success && response.text) {
+      transcriptionText.value = response.text
+    } else {
+      throw new Error('변환 결과를 받지 못했습니다.')
+    }
+  } catch (error: any) {
+    console.error('STT Error:', error)
+    errorMessage.value = error.data?.message || error.message || '음성 처리 중 오류가 발생했습니다.'
   } finally {
     isProcessing.value = false
   }
 }
 
-const clearTranscription = () => {
+const clearTranscription = (): void => {
   transcriptionText.value = ''
   recordingTime.value = 0
 }
 
-const copyToClipboard = async () => {
+const copyToClipboard = async (): Promise<void> => {
   try {
     await navigator.clipboard.writeText(transcriptionText.value)
     alert('클립보드에 복사되었습니다!')

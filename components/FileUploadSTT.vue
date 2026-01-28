@@ -134,27 +134,37 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
 
+interface APIResponse {
+  success: boolean
+  text?: string
+  transcriptionId?: string
+  usedMinutes?: number
+  remainingMinutes?: number
+  isLocked?: boolean
+}
+
 const isDragging = ref(false)
-const selectedFile = ref(null)
+const selectedFile = ref<File | null>(null)
 const isConverting = ref(false)
 const transcriptionResult = ref('')
 const errorMessage = ref('')
 
-const handleDrop = (e) => {
+const handleDrop = (e: DragEvent) => {
   isDragging.value = false
-  const files = e.dataTransfer.files
-  if (files.length > 0) {
+  const files = e.dataTransfer?.files
+  if (files && files.length > 0) {
     selectedFile.value = files[0]
     errorMessage.value = ''
   }
 }
 
-const handleFileSelect = (e) => {
-  const files = e.target.files
-  if (files.length > 0) {
+const handleFileSelect = (e: Event) => {
+  const target = e.target as HTMLInputElement
+  const files = target.files
+  if (files && files.length > 0) {
     selectedFile.value = files[0]
     errorMessage.value = ''
   }
@@ -166,7 +176,7 @@ const removeFile = () => {
   errorMessage.value = ''
 }
 
-const formatFileSize = (bytes) => {
+const formatFileSize = (bytes: number): string => {
   if (bytes === 0) return '0 Bytes'
   const k = 1024
   const sizes = ['Bytes', 'KB', 'MB', 'GB']
@@ -174,25 +184,36 @@ const formatFileSize = (bytes) => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
 
-const convertToText = async () => {
+const convertToText = async (): Promise<void> => {
   if (!selectedFile.value) return
   
   isConverting.value = true
   errorMessage.value = ''
+  transcriptionResult.value = ''
   
   try {
-    // TODO: RTZR STT API 연동 구현
-    // 현재는 시뮬레이션
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    transcriptionResult.value = '여기에 변환된 텍스트가 표시됩니다.\n\nAPI 연동 후 실제 음성 인식 결과가 나타납니다.'
-  } catch (error) {
-    errorMessage.value = '파일 변환 중 오류가 발생했습니다.'
+    const formData = new FormData()
+    formData.append('file', selectedFile.value)
+    
+    const response = await $fetch<APIResponse>('/api/stt/upload', {
+      method: 'POST',
+      body: formData,
+    })
+    
+    if (response.success && response.text) {
+      transcriptionResult.value = response.text
+    } else {
+      throw new Error('변환 결과를 받지 못했습니다.')
+    }
+  } catch (error: any) {
+    console.error('STT Error:', error)
+    errorMessage.value = error.data?.message || error.message || '파일 변환 중 오류가 발생했습니다.'
   } finally {
     isConverting.value = false
   }
 }
 
-const copyToClipboard = async () => {
+const copyToClipboard = async (): Promise<void> => {
   try {
     await navigator.clipboard.writeText(transcriptionResult.value)
     alert('클립보드에 복사되었습니다!')
