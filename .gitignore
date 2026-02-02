@@ -22,3 +22,6 @@ logs
 .env
 .env.*
 !.env.example
+
+# Whisper server (Python venv는 파일이 너무 많아서 제외)
+whisper-server/

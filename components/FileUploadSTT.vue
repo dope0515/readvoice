@@ -12,22 +12,12 @@
           : 'border-gray-300 hover:border-gray-400'
       ]"
     >
-      <svg
-        class="mx-auto h-12 w-12 text-gray-400"
-        stroke="currentColor"
-        fill="none"
-        viewBox="0 0 48 48"
-        aria-hidden="true"
-      >
-        <path
-          d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-      <div class="mt-4">
+      <!-- 상태 애니메이션 컴포넌트 -->
+      <StatusAnimation :status="currentStatus" />
+      
+      <div class="mt-6">
         <label
+          v-if="!isConverting && !isSummarizing"
           for="file-upload"
           class="relative cursor-pointer rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none"
         >
@@ -41,9 +31,9 @@
             @change="handleFileSelect"
           />
         </label>
-        <span class="text-gray-600"> 드래그 앤 드롭</span>
+        <span v-if="!isConverting && !isSummarizing" class="text-gray-600"> 드래그 앤 드롭</span>
       </div>
-      <p class="text-xs text-gray-500 mt-2">
+      <p v-if="!isConverting && !isSummarizing" class="text-xs text-gray-500 mt-2">
         WAV, MP3, M4A, FLAC, OGG 파일 지원
       </p>
     </div>
@@ -173,7 +163,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 interface APIResponse {
   success: boolean
@@ -207,6 +197,14 @@ const errorMessage = ref('')
 const isSummarizing = ref(false)
 const summaryResult = ref('')
 const summaryError = ref('')
+
+// 현재 상태 계산
+const currentStatus = computed(() => {
+  if (isSummarizing.value) return 'summarizing'
+  if (isConverting.value) return 'converting'
+  if (transcriptionResult.value && summaryResult.value) return 'finished'
+  return 'idle'
+})
 
 // 파일 유효성 검사 함수
 const isValidAudioFile = (file: File): boolean => {

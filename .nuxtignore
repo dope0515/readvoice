@@ -1,0 +1,2 @@
+# Whisper 서버 폴더 제외 (Python venv 때문에 파일이 너무 많음)
+whisper-server/**

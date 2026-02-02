@@ -35,7 +35,7 @@ def get_model():
     global model
     if model is None:
         print("Whisper 모델을 로딩 중입니다... (첫 실행 시 모델 다운로드로 시간이 걸릴 수 있습니다)")
-        model = whisper.load_model("base")  # tiny, base, small, medium, large 중 선택
+        model = whisper.load_model("small")  # tiny, base, small, medium, large 중 선택
         print("Whisper 모델 로딩 완료!")
     return model
 
