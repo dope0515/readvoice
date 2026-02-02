@@ -6,6 +6,7 @@ Nuxt 3와 RTZR STT API를 사용한 음성-텍스트 변환 서비스입니다.
 
 - 📁 **파일 업로드 STT**: 오디오 파일을 업로드하여 텍스트로 변환
 - 🎤 **실시간 음성 인식**: 마이크로 녹음한 음성을 실시간으로 텍스트로 변환
+- 🤖 **AI 요약**: Ollama를 활용한 STT 결과 자동 요약 (3-5개 핵심 요점)
 - 📊 **사용량 관리**: 무료 사용량(530분) 실시간 추적 및 자동 차단
 - 🎨 **현대적인 UI**: Tailwind CSS를 사용한 반응형 디자인
 - 🔒 **안전한 API 연동**: Nuxt Server Routes를 통한 보안 강화
@@ -56,7 +57,36 @@ VALUES ('00000000-0000-0000-0000-000000000001', 0, 530, 600);
 
 4. Project Settings > API에서 URL과 anon key 복사
 
-### 4. 환경 변수 설정
+### 4. Ollama 설정 (요약 기능 사용 시)
+
+AI 요약 기능을 사용하려면 로컬에 Ollama를 설치해야 합니다.
+
+1. [Ollama 다운로드](https://ollama.com/download) 후 설치
+
+2. 모델 다운로드:
+   ```bash
+   ollama pull gemma3
+   ```
+
+3. Ollama 서버 실행 확인:
+   ```bash
+   ollama list
+   ```
+
+#### 지원 모델
+
+- **gemma3** (권장): 빠르고 효율적, 적은 메모리 사용 (~4-6GB RAM)
+- **qwen2.5**: 한중일 언어 특화, 더 정확한 요약
+- **llama3.2**: 범용성 좋음, 더 큰 컨텍스트 지원
+
+모델 변경은 `.env` 파일에서 `NUXT_OLLAMA_MODEL` 값을 수정하면 됩니다.
+
+⚠️ **주의사항**:
+- Ollama는 로컬에서만 실행되므로 프로덕션 배포 시 별도 Ollama 서버 필요
+- 첫 요약 시 모델 로딩 시간 소요 (5-10초)
+- Vercel 등 서버리스 환경에서는 작동하지 않음
+
+### 5. 환경 변수 설정
 
 프로젝트 루트에 `.env` 파일 생성:
 
@@ -75,6 +105,10 @@ NUXT_RTZR_API_BASE_URL=https://openapi.vito.ai/v1
 # Supabase
 NUXT_SUPABASE_URL=https://your-project.supabase.co
 NUXT_SUPABASE_KEY=your_anon_key_here
+
+# Ollama (선택사항)
+NUXT_OLLAMA_HOST=http://localhost:11434
+NUXT_OLLAMA_MODEL=gemma3
 ```
 
 ⚠️ **주의**: `.env` 파일은 절대 Git에 커밋하지 마세요!
@@ -95,6 +129,7 @@ npm run dev
 2. 오디오 파일을 드래그 앤 드롭하거나 파일 선택 버튼 클릭
 3. "텍스트로 변환" 버튼 클릭
 4. 변환 완료 후 결과 확인 및 복사
+5. (선택) "요약하기" 버튼 클릭하여 AI 요약 생성
 
 **지원 형식**: WAV, MP3, M4A, FLAC, OGG
 
@@ -105,6 +140,15 @@ npm run dev
 3. 말하기
 4. 다시 클릭하여 녹음 중지
 5. 자동으로 텍스트 변환 결과 표시
+6. (선택) "요약하기" 버튼 클릭하여 AI 요약 생성
+
+### AI 요약
+
+변환된 텍스트를 3-5개의 핵심 요점으로 자동 요약합니다.
+
+- Ollama가 설치되고 실행 중이어야 사용 가능
+- 첫 요약 시 모델 로딩으로 약 5-10초 소요
+- 이후 요약은 즉시 처리됩니다
 
 ## 프로젝트 구조
 
@@ -124,6 +168,8 @@ stt/
 │   │   │   ├── upload.post.ts        # 파일 업로드 API
 │   │   │   ├── realtime.post.ts      # 실시간 STT API
 │   │   │   └── status/[id].get.ts    # 상태 확인 API
+│   │   ├── summarize/
+│   │   │   └── text.post.ts          # AI 요약 API
 │   │   └── usage/
 │   │       └── current.get.ts        # 사용량 조회 API
 │   └── utils/
@@ -142,6 +188,9 @@ stt/
 - `POST /api/stt/upload` - 파일 업로드 및 변환
 - `POST /api/stt/realtime` - 실시간 음성 변환
 - `GET /api/stt/status/[id]` - 변환 상태 확인
+
+### AI 요약 API
+- `POST /api/summarize/text` - 텍스트 요약 (Ollama 사용)
 
 ### 사용량 관리 API
 - `GET /api/usage/current` - 현재 사용량 조회
@@ -180,12 +229,14 @@ npm run preview
 - **Frontend**: Nuxt 3, Vue 3, TypeScript
 - **Styling**: Tailwind CSS
 - **API**: RTZR STT OpenAPI
+- **AI/ML**: Ollama (Local LLM)
 - **Database**: Supabase (PostgreSQL)
 - **Runtime**: Node.js
 
 ## 참고 문서
 
 - [RTZR STT API 문서](https://developers.rtzr.ai/docs/)
+- [Ollama 문서](https://ollama.com/docs)
 - [Supabase 문서](https://supabase.com/docs)
 - [Nuxt 3 문서](https://nuxt.com/docs)
 - [Vue 3 문서](https://vuejs.org/)

@@ -3,7 +3,7 @@
     <!-- 녹음 상태 표시 -->
     <div class="text-center">
       <div class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium"
-           :class="statusClass">
+          :class="statusClass">
         <span class="relative flex h-3 w-3 mr-2">
           <span v-if="isRecording" 
                 class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -50,7 +50,7 @@
 
     <!-- 실시간 텍스트 결과 -->
     <div v-if="transcriptionText || isProcessing" 
-         class="bg-white rounded-lg border border-gray-200 p-6">
+        class="bg-white rounded-lg border border-gray-200 p-6">
       <h3 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
         <svg class="h-5 w-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
@@ -79,18 +79,58 @@
         >
           초기화
         </button>
-        <button
-          @click="copyToClipboard"
-          class="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
-        >
-          클립보드에 복사
-        </button>
+        <div class="flex space-x-3">
+          <button
+            @click="summarizeText"
+            :disabled="isSummarizing"
+            :class="[
+              'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
+              isSummarizing
+                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                : 'bg-green-600 text-white hover:bg-green-700'
+            ]"
+          >
+            {{ isSummarizing ? '요약 중...' : '요약하기' }}
+          </button>
+          <button
+            @click="copyToClipboard"
+            class="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+          >
+            클립보드에 복사
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 요약 결과 -->
+    <div v-if="summaryResult" class="bg-green-50 rounded-lg border border-green-200 p-6">
+      <h3 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
+        <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+        AI 요약
+      </h3>
+      <div class="bg-white rounded-lg p-4">
+        <p class="text-gray-800 whitespace-pre-wrap">{{ summaryResult }}</p>
+      </div>
+    </div>
+
+    <!-- 요약 에러 -->
+    <div v-if="summaryError" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+      <div class="flex">
+        <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" 
+                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" 
+                clip-rule="evenodd"/>
+        </svg>
+        <p class="ml-3 text-sm text-yellow-800">{{ summaryError }}</p>
       </div>
     </div>
 
     <!-- 권한 안내 -->
     <div v-if="showPermissionInfo" 
-         class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        class="bg-blue-50 border border-blue-200 rounded-lg p-4">
       <div class="flex">
         <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
           <path fill-rule="evenodd" 
@@ -137,6 +177,9 @@ const recordingTime = ref(0)
 const transcriptionText = ref('')
 const errorMessage = ref('')
 const showPermissionInfo = ref(false)
+const isSummarizing = ref(false)
+const summaryResult = ref('')
+const summaryError = ref('')
 
 let mediaRecorder: MediaRecorder | null = null
 let recordingInterval: number | null = null
@@ -228,8 +271,8 @@ const processAudio = async (audioBlob: Blob): Promise<void> => {
     
     const response = await $fetch<APIResponse>('/api/stt/realtime', {
       method: 'POST',
-      body: formData,
-    })
+      body: formData
+    } as any)
     
     if (response.success && response.text) {
       transcriptionText.value = response.text
@@ -247,6 +290,8 @@ const processAudio = async (audioBlob: Blob): Promise<void> => {
 const clearTranscription = (): void => {
   transcriptionText.value = ''
   recordingTime.value = 0
+  summaryResult.value = ''
+  summaryError.value = ''
 }
 
 const copyToClipboard = async (): Promise<void> => {
@@ -255,6 +300,29 @@ const copyToClipboard = async (): Promise<void> => {
     alert('클립보드에 복사되었습니다!')
   } catch (error) {
     errorMessage.value = '클립보드 복사에 실패했습니다.'
+  }
+}
+
+const summarizeText = async (): Promise<void> => {
+  if (!transcriptionText.value) return
+  
+  isSummarizing.value = true
+  summaryError.value = ''
+  summaryResult.value = ''
+  
+  try {
+    const response = await $fetch<{ success: boolean; summary: string }>('/api/summarize/text', {
+      method: 'POST',
+      body: { text: transcriptionText.value }
+    } as any)
+    
+    if (response.success && response.summary) {
+      summaryResult.value = response.summary
+    }
+  } catch (error: any) {
+    summaryError.value = error.data?.message || '요약 생성에 실패했습니다.'
+  } finally {
+    isSummarizing.value = false
   }
 }
 

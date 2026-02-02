@@ -65,10 +65,12 @@ export async function uploadFileForSTT(
     const formData = new FormData()
     formData.append('file', file, filename)
     formData.append('config', JSON.stringify({
-      use_diarization: false,
-      use_itn: true,
-      use_disfluency_filter: false,
-      use_profanity_filter: false,
+      use_diarization: false, // 화자분리 사용여부
+      use_itn: true, // 영어/숫자/단위 표기 변환 사용여부
+      use_disfluency_filter: false, // 간투어 필터 사용여부
+      use_profanity_filter: false, // 욕설 필터 사용여부
+      use_word_timestamp: true, // 단어 타임스탬프 사용여부
+      use_language_detection: true, // 문단 나누기 사용 여부 짧게는 50(Mobile), 보통 80 (Tablet), 길게는 130 (PC)으로 설정하면 된다.
     }))
 
     const response = await $fetch<{ id: string }>(
