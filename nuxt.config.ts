@@ -9,10 +9,8 @@ export default defineNuxtConfig({
   modules: ['@nuxtjs/tailwindcss'],
   css: ['~/assets/css/main.css'],
   runtimeConfig: {
-    rtzr: {
-      clientId: process.env.NUXT_RTZR_CLIENT_ID,
-      clientSecret: process.env.NUXT_RTZR_CLIENT_SECRET,
-      apiBaseUrl: process.env.NUXT_RTZR_API_BASE_URL || 'https://openapi.vito.ai/v1'
+    whisper: {
+      apiBaseUrl: process.env.NUXT_WHISPER_API_URL || 'http://localhost:8000'
     },
     supabase: {
       url: process.env.NUXT_SUPABASE_URL,

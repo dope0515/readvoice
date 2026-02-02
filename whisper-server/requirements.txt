@@ -1,0 +1,10 @@
+# FastAPI 및 서버 관련
+fastapi
+uvicorn[standard]
+python-multipart
+
+# OpenAI Whisper
+openai-whisper
+
+# ffmpeg wrapper
+ffmpeg-python
