@@ -10,7 +10,6 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.93.2",
     "nuxt": "^3.14.0",
     "ollama": "^0.5.0",
     "vue": "latest",
