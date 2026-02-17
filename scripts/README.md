@@ -1,11 +1,104 @@
 # 배포 스크립트
 
-Oracle Cloud 배포를 자동화하는 스크립트 모음입니다.
+Oracle Cloud (Rocky Linux) 배포를 자동화하는 스크립트 모음입니다.
+
+## 빠른 시작
+
+### 서버에서 실행 (SSH 접속 후)
+
+```bash
+# 1. 프로젝트 디렉토리로 이동
+cd ~/stt/scripts
+
+# 2. 실행 권한 부여
+chmod +x *.sh
+
+# 3. 배포 스크립트 실행 (순서대로)
+./deploy-to-server.sh    # Whisper 서버 배포
+./setup-ollama.sh         # Ollama 외부 접속 설정
+./setup-firewall.sh       # 방화벽 설정 (선택사항)
+./verify-services.sh      # 서비스 검증
+```
 
 ## 스크립트 목록
 
-### 1. `deploy-oracle.sh`
-Oracle Cloud에 Whisper 서버를 자동으로 배포하는 스크립트입니다.
+### 신규 스크립트 (Rocky Linux 전용)
+
+#### 1. `deploy-to-server.sh` ⭐ 추천
+서버에서 직접 실행하는 Whisper 배포 스크립트입니다.
+
+**사용법:**
+```bash
+# SSH 접속 후
+cd ~/stt/scripts
+chmod +x deploy-to-server.sh
+./deploy-to-server.sh
+```
+
+**수행 작업:**
+- ✅ 시스템 패키지 설치 (Python, ffmpeg)
+- ✅ Python 가상환경 생성
+- ✅ 의존성 설치
+- ✅ 환경 변수 설정
+- ✅ Systemd 서비스 등록
+- ✅ 방화벽 포트 오픈 (8000)
+- ✅ 서비스 시작 및 검증
+
+#### 2. `setup-ollama.sh` ⭐ 추천
+Ollama를 외부 접속 가능하도록 설정합니다.
+
+**사용법:**
+```bash
+cd ~/stt/scripts
+chmod +x setup-ollama.sh
+./setup-ollama.sh
+```
+
+**수행 작업:**
+- ✅ Ollama 설치 확인
+- ✅ 외부 접속 허용 (0.0.0.0:11434)
+- ✅ Systemd 서비스 재시작
+- ✅ 방화벽 포트 오픈 (11434)
+- ✅ 모델 확인
+
+#### 3. `setup-firewall.sh`
+방화벽 설정을 관리합니다 (Rocky Linux firewalld).
+
+**사용법:**
+```bash
+cd ~/stt/scripts
+chmod +x setup-firewall.sh
+./setup-firewall.sh
+```
+
+**수행 작업:**
+- ✅ firewalld 상태 확인
+- ✅ 포트 8000/tcp 오픈
+- ✅ 포트 11434/tcp 오픈
+- ✅ 방화벽 규칙 적용
+
+#### 4. `verify-services.sh` ⭐ 추천
+배포 완료 후 모든 서비스가 정상 작동하는지 검증합니다.
+
+**사용법:**
+```bash
+cd ~/stt/scripts
+chmod +x verify-services.sh
+./verify-services.sh
+```
+
+**테스트 항목:**
+- ✅ Systemd 서비스 상태
+- ✅ 포트 연결 테스트
+- ✅ Whisper API 헬스 체크
+- ✅ Ollama API 헬스 체크
+- ✅ 외부 접속 설정 확인
+- ✅ 방화벽 규칙 확인
+
+### 기존 스크립트 (Ubuntu 기반)
+
+#### `deploy-oracle.sh`
+로컬에서 실행하여 Oracle Cloud (Ubuntu)에 Whisper 서버를 배포하는 스크립트입니다.
 
 **사용법:**
 ```bash
@@ -67,7 +160,60 @@ ORACLE_IP=123.45.67.89 ./scripts/test-services.sh
 
 ## 전체 배포 프로세스
 
-### 1단계: 로컬에서 배포 스크립트 실행
+### Rocky Linux 서버 배포 (권장)
+
+#### 1단계: SSH 접속
+
+```bash
+ssh -i ~/Downloads/ssh-key-2026-02-03.key rocky@144.24.65.251
+```
+
+#### 2단계: 스크립트 실행
+
+```bash
+cd ~/stt/scripts
+chmod +x *.sh
+
+# Whisper 배포 (자동)
+./deploy-to-server.sh
+
+# Ollama 설정 (자동)
+./setup-ollama.sh
+
+# 검증 (필수)
+./verify-services.sh
+```
+
+#### 3단계: 로컬에서 테스트
+
+```bash
+# 서버에서 로그아웃 후
+curl http://144.24.65.251:8000/health
+curl http://144.24.65.251:11434/api/tags
+```
+
+#### 4단계: Vercel 배포
+
+```bash
+cd /path/to/your/project
+
+# 환경 변수 설정
+vercel env add NUXT_WHISPER_API_URL production
+# 입력: http://144.24.65.251:8000
+
+vercel env add NUXT_OLLAMA_HOST production
+# 입력: http://144.24.65.251:11434
+
+vercel env add NUXT_OLLAMA_MODEL production
+# 입력: gemma3
+
+# 배포
+vercel --prod
+```
+
+### Ubuntu 서버 배포 (기존 방식)
+
+#### 1단계: 로컬에서 배포 스크립트 실행
 
 ```bash
 # 프로젝트 루트에서
@@ -78,7 +224,7 @@ chmod +x *.sh
 ORACLE_IP=your-oracle-ip ./deploy-oracle.sh
 ```
 
-### 2단계: Ollama 설치 (Oracle Cloud에서)
+#### 2단계: Ollama 설치 (Oracle Cloud에서)
 
 ```bash
 # SSH 접속
@@ -90,33 +236,16 @@ curl -fsSL https://ollama.com/install.sh | sh
 # 모델 다운로드
 ollama pull gemma3
 
-# Systemd 서비스 설정 (선택사항, setup-systemd.sh 실행)
+# Systemd 서비스 설정
 cd ~/stt/scripts
 ./setup-systemd.sh
 ```
 
-### 3단계: 서비스 테스트 (로컬에서)
+#### 3단계: 서비스 테스트 (로컬에서)
 
 ```bash
 # 프로젝트 루트에서
 ORACLE_IP=your-oracle-ip ./scripts/test-services.sh
-```
-
-### 4단계: Vercel 배포
-
-```bash
-# 환경 변수 설정
-vercel env add NUXT_WHISPER_API_URL
-# 값: http://your-oracle-ip:8000
-
-vercel env add NUXT_OLLAMA_HOST
-# 값: http://your-oracle-ip:11434
-
-vercel env add NUXT_OLLAMA_MODEL
-# 값: gemma3
-
-# 배포
-vercel --prod
 ```
 
 ## 문제 해결
