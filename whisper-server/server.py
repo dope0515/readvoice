@@ -63,7 +63,7 @@ async def health_check():
 @app.post("/v1/audio/transcriptions")
 async def transcribe_audio(
     file: UploadFile = File(...),
-    model: str = Form("whisper-1"),
+    model_name: str = Form("whisper-1"),
     language: str = Form(None),
     prompt: str = Form(None),
     response_format: str = Form("json"),
@@ -141,6 +141,11 @@ async def transcribe_audio(
         # 에러 발생 시 임시 파일 정리
         if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
             os.unlink(temp_file_path)
+        
+        # 디버깅을 위한 에러 출력
+        import traceback
+        print(f"ERROR: {str(e)}")
+        traceback.print_exc()
         
         raise HTTPException(
             status_code=500,
