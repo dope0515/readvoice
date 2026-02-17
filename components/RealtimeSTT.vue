@@ -311,16 +311,32 @@ const summarizeText = async (): Promise<void> => {
   summaryResult.value = ''
   
   try {
-    const response = await $fetch<{ success: boolean; summary: string }>('/api/summarize/text', {
+    // 클라이언트의 로컬 Ollama 사용
+    const response = await fetch('http://localhost:11434/api/generate', {
       method: 'POST',
-      body: { text: transcriptionText.value }
-    } as any)
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'tinyllama',
+        prompt: `다음 텍스트를 3개 요점으로 요약:\n\n${transcriptionText.value}`,
+        stream: false,
+        options: {
+          temperature: 0.3,
+          num_predict: 150
+        }
+      })
+    })
     
-    if (response.success && response.summary) {
-      summaryResult.value = response.summary
+    if (!response.ok) {
+      throw new Error(`Ollama 응답 오류: ${response.status}`)
     }
+    
+    const data = await response.json()
+    summaryResult.value = data.response || '요약 생성 완료'
   } catch (error: any) {
-    summaryError.value = error.data?.message || '요약 생성에 실패했습니다.'
+    console.error('Summarization error:', error)
+    summaryError.value = '로컬 Ollama에 연결할 수 없습니다. Ollama를 설치하고 실행해주세요. (ollama.com)'
   } finally {
     isSummarizing.value = false
   }

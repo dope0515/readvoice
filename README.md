@@ -55,27 +55,27 @@ python server.py
 
 ### 3. Ollama 설정 (요약 기능 사용 시)
 
-AI 요약 기능을 사용하려면 로컬에 Ollama를 설치해야 합니다.
+**⚠️ 중요**: AI 요약 기능은 **사용자의 로컬 컴퓨터에서** Ollama를 실행합니다.
 
 1. [Ollama 다운로드](https://ollama.com/download) 후 설치
 
 2. 모델 다운로드:
    ```bash
-   ollama pull gemma3
+   ollama pull tinyllama
    ```
 
-3. Ollama 서버 실행 확인:
+3. Ollama 서버 실행:
    ```bash
-   ollama list
+   ollama serve
    ```
 
 #### 지원 모델
 
-- **gemma3** (권장): 빠르고 효율적, 적은 메모리 사용 (~4-6GB RAM)
-- **qwen2.5**: 한중일 언어 특화, 더 정확한 요약
-- **llama3.2**: 범용성 좋음, 더 큰 컨텍스트 지원
+- **tinyllama** (기본): 가장 빠르고 가벼움 (~0.6GB RAM) ⭐️ 권장
+- **gemma3**: 더 나은 품질, 메모리 사용 증가 (~4GB RAM)
+- **qwen2.5**: 한중일 언어 특화, 더 정확한 요약 (~6GB RAM)
 
-모델 변경은 `.env` 파일에서 `NUXT_OLLAMA_MODEL` 값을 수정하면 됩니다.
+모델은 컴포넌트 파일에서 직접 변경할 수 있습니다.
 
 ### 4. 환경 변수 설정
 
@@ -88,18 +88,16 @@ cp .env.example .env
 `.env` 파일 내용:
 
 ```env
-# Whisper STT API (로컬)
+# Whisper STT API (로컬 개발)
 NUXT_WHISPER_API_URL=http://localhost:8000
-
-# Ollama (선택사항)
-NUXT_OLLAMA_HOST=http://localhost:11434
-NUXT_OLLAMA_MODEL=gemma3
 ```
 
 **Oracle Cloud 배포 시:**
 ```env
-NUXT_WHISPER_API_URL=https://your-oracle-ip:8000
+NUXT_WHISPER_API_URL=http://your-oracle-ip:8000
 ```
+
+**주의**: Ollama 설정은 더 이상 필요하지 않습니다. 클라이언트가 자동으로 `localhost:11434`에 연결합니다.
 
 ## 개발 서버 실행
 
@@ -113,11 +111,12 @@ python server.py
 # → http://localhost:8000
 ```
 
-**터미널 2 - Ollama (선택사항):**
+**터미널 2 - Ollama (요약 기능 사용 시):**
 ```bash
 ollama serve
 # → http://localhost:11434
 ```
+⚠️ **Ollama는 클라이언트(사용자 PC)에서 실행됩니다!**
 
 **터미널 3 - Nuxt 앱:**
 ```bash
@@ -148,11 +147,12 @@ npm run dev
 
 ### AI 요약
 
-변환된 텍스트를 3-5개의 핵심 요점으로 자동 요약합니다.
+변환된 텍스트를 3개 요점으로 자동 요약합니다.
 
-- Ollama가 설치되고 실행 중이어야 사용 가능
-- 첫 요약 시 모델 로딩으로 약 5-10초 소요
+- **사용자의 로컬 컴퓨터**에서 Ollama가 실행 중이어야 합니다
+- 첫 요약 시 모델 로딩으로 약 2-5초 소요 (tinyllama)
 - 이후 요약은 즉시 처리됩니다
+- 서버 메모리 부담 없이 사용자의 컴퓨터 성능을 활용합니다
 
 ## 프로젝트 구조
 
@@ -228,16 +228,20 @@ npm run preview
 ### 배포 아키텍처
 
 ```
-[사용자] → [Vercel (Nuxt 앱)] → [Oracle Cloud]
-                                    ├─ Whisper 서버 :8000
-                                    └─ Ollama 서버 :11434
+[사용자] ─┬─→ [Vercel (Nuxt 프론트엔드)] ─→ [Oracle Cloud]
+          │                                      └─ Whisper 서버 :8000
+          │
+          └─→ [로컬 Ollama :11434] (AI 요약)
 ```
+
+**변경사항**: Ollama는 더 이상 서버에 배포하지 않습니다. 클라이언트의 로컬 Ollama를 직접 사용하여 서버 메모리 부담을 제거했습니다!
 
 ### Oracle Cloud + Vercel 배포
 
 이 프로젝트는 다음과 같이 배포할 수 있습니다:
-- **Oracle Cloud**: Whisper와 Ollama를 무료 티어에서 실행 (백엔드)
-- **Vercel**: Nuxt 앱을 무료로 배포 (프론트엔드 + API routes)
+- **Oracle Cloud**: Whisper 서버만 무료 티어에서 실행 (STT 백엔드)
+- **Vercel**: Nuxt 앱을 무료로 배포 (프론트엔드)
+- **사용자 로컬**: Ollama 실행 (AI 요약)
 
 #### 빠른 시작
 
@@ -255,25 +259,7 @@ ORACLE_IP=123.45.67.89 ./scripts/deploy-oracle.sh
 - ✅ Systemd 서비스 등록
 - ✅ 서버 시작 및 확인
 
-**2단계: Ollama 설치 (Oracle Cloud에서)**
-
-```bash
-# SSH 접속
-ssh ubuntu@your-oracle-ip
-
-# Ollama 설치
-curl -fsSL https://ollama.com/install.sh | sh
-
-# 모델 다운로드
-ollama pull gemma3
-
-# Systemd 서비스 설정
-cd ~/stt/scripts
-chmod +x setup-systemd.sh
-./setup-systemd.sh
-```
-
-**3단계: Vercel에 Nuxt 앱 배포**
+**2단계: Vercel에 Nuxt 앱 배포**
 
 ```bash
 # Vercel CLI 설치
@@ -286,14 +272,22 @@ vercel login
 vercel env add NUXT_WHISPER_API_URL
 # 값: http://your-oracle-ip:8000
 
-vercel env add NUXT_OLLAMA_HOST
-# 값: http://your-oracle-ip:11434
-
-vercel env add NUXT_OLLAMA_MODEL
-# 값: gemma3
-
 # 배포
 vercel --prod
+```
+
+**3단계: 사용자 로컬에 Ollama 설치 (요약 기능 사용 시)**
+
+각 사용자가 자신의 컴퓨터에서:
+```bash
+# 1. Ollama 설치
+# https://ollama.com/download
+
+# 2. 모델 다운로드
+ollama pull tinyllama
+
+# 3. 서버 실행 (백그라운드)
+ollama serve
 ```
 
 #### 상세 가이드
@@ -309,8 +303,10 @@ vercel --prod
 
 | 환경 | Whisper | Ollama | Nuxt 앱 |
 |------|---------|---------|---------|
-| **로컬 개발** | localhost:8000 | localhost:11434 | localhost:3000 |
-| **프로덕션** | Oracle Cloud:8000 | Oracle Cloud:11434 | Vercel |
+| **로컬 개발** | localhost:8000 | localhost:11434 (로컬) | localhost:3000 |
+| **프로덕션** | Oracle Cloud:8000 | localhost:11434 (사용자 로컬) | Vercel |
+
+⚠️ **중요**: Ollama는 항상 사용자의 로컬 컴퓨터에서 실행됩니다!
 
 ## 참고 문서
 
@@ -320,6 +316,7 @@ vercel --prod
 - 📙 [배포 스크립트 사용법](scripts/README.md)
 - 📕 [통합 테스트 가이드](docs/testing-guide.md)
 - 📄 [Whisper 서버 가이드](whisper-server/README.md)
+- 🤖 [클라이언트 Ollama 설정 가이드](docs/CLIENT_OLLAMA_SETUP.md) ⭐️ **필독**
 
 ### 외부 문서
 - [OpenAI Whisper GitHub](https://github.com/openai/whisper)

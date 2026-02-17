@@ -15,15 +15,28 @@ export default defineEventHandler(async (event) => {
     const ollamaHost = config.ollama?.host || 'http://localhost:11434'
     const ollamaModel = config.ollama?.model || 'gemma3'
     
-    const ollama = new Ollama({ host: ollamaHost })
+    const ollama = new Ollama({ 
+      host: ollamaHost,
+      fetch: (url, options) => {
+        return fetch(url, {
+          ...options,
+          signal: AbortSignal.timeout(60000) // 60초 타임아웃
+        })
+      }
+    })
     
     const response = await ollama.chat({
       model: ollamaModel,
       messages: [{
         role: 'user',
-        content: `다음 텍스트를 3-5개의 핵심 요점으로 요약해주세요. 각 요점은 한 문장으로 작성하고, 불렛 포인트 형식으로 출력하세요:\n\n${text}`
+        content: `다음 텍스트를 3개 요점으로 요약:\n\n${text}`
       }],
-      stream: false
+      stream: false,
+      options: {
+        temperature: 0.3,      // 더 일관된 출력
+        top_p: 0.9,            // 샘플링 최적화
+        num_predict: 150       // 최대 토큰 제한
+      }
     })
     
     return {
