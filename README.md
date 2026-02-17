@@ -162,7 +162,9 @@ stt/
 ├── components/
 │   ├── TabNavigation.vue             # 탭 네비게이션
 │   ├── FileUploadSTT.vue             # 파일 업로드 컴포넌트
-│   └── RealtimeSTT.vue               # 실시간 STT 컴포넌트
+│   ├── RealtimeSTT.vue               # 실시간 STT 컴포넌트
+│   ├── StatusAnimation.vue           # 상태 애니메이션
+│   └── LicenseFooter.vue             # 라이센스 푸터
 ├── server/
 │   ├── api/
 │   │   ├── stt/
@@ -171,15 +173,28 @@ stt/
 │   │   └── summarize/
 │   │       └── text.post.ts          # AI 요약 API
 │   └── utils/
-│       └── whisper.ts                # Whisper API 유틸리티
+│       ├── whisper.ts                # Whisper API 유틸리티
+│       └── rtzr.ts                   # 기타 유틸리티
 ├── whisper-server/                   # Whisper FastAPI 서버
 │   ├── server.py                     # FastAPI 서버
 │   ├── requirements.txt              # Python 의존성
-│   └── README.md                     # 서버 가이드
+│   ├── README.md                     # 서버 가이드
+│   └── .env.example                  # 환경 변수 예시
+├── docs/                             # 배포 가이드
+│   ├── oracle-cloud-setup.md         # Oracle Cloud 배포
+│   ├── vercel-deployment.md          # Vercel 배포
+│   └── testing-guide.md              # 통합 테스트
+├── scripts/                          # 배포 자동화 스크립트
+│   ├── deploy-oracle.sh              # Oracle Cloud 배포
+│   ├── setup-systemd.sh              # Systemd 서비스 설정
+│   ├── test-services.sh              # 서비스 테스트
+│   └── README.md                     # 스크립트 가이드
 ├── assets/
 │   └── css/
 │       └── main.css                  # Tailwind CSS
 ├── .env                              # 환경 변수 (gitignore)
+├── .env.example                      # 환경 변수 예시
+├── vercel.json                       # Vercel 배포 설정
 └── nuxt.config.ts                    # Nuxt 설정
 ```
 
@@ -208,46 +223,135 @@ npm run build
 npm run preview
 ```
 
-## Oracle Cloud 배포
+## 프로덕션 배포
 
-1. **Whisper 서버 배포:**
-   ```bash
-   scp -r whisper-server user@oracle-ip:/path/to/
-   ssh user@oracle-ip
-   cd /path/to/whisper-server
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   python server.py
-   ```
+### 배포 아키텍처
 
-2. **Nuxt 앱 `.env` 수정:**
-   ```env
-   NUXT_WHISPER_API_URL=https://your-oracle-ip:8000
-   ```
+```
+[사용자] → [Vercel (Nuxt 앱)] → [Oracle Cloud]
+                                    ├─ Whisper 서버 :8000
+                                    └─ Ollama 서버 :11434
+```
 
-3. **Nuxt 앱 배포:**
-   ```bash
-   npm run build
-   ```
+### Oracle Cloud + Vercel 배포
+
+이 프로젝트는 다음과 같이 배포할 수 있습니다:
+- **Oracle Cloud**: Whisper와 Ollama를 무료 티어에서 실행 (백엔드)
+- **Vercel**: Nuxt 앱을 무료로 배포 (프론트엔드 + API routes)
+
+#### 빠른 시작
+
+**1단계: Oracle Cloud에 Whisper 배포 (자동화 스크립트 사용)**
+
+```bash
+# 로컬에서 실행
+chmod +x scripts/deploy-oracle.sh
+ORACLE_IP=123.45.67.89 ./scripts/deploy-oracle.sh
+```
+
+자동으로 다음 작업을 수행합니다:
+- ✅ Whisper 서버 파일 업로드
+- ✅ Python 의존성 설치
+- ✅ Systemd 서비스 등록
+- ✅ 서버 시작 및 확인
+
+**2단계: Ollama 설치 (Oracle Cloud에서)**
+
+```bash
+# SSH 접속
+ssh ubuntu@your-oracle-ip
+
+# Ollama 설치
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 모델 다운로드
+ollama pull gemma3
+
+# Systemd 서비스 설정
+cd ~/stt/scripts
+chmod +x setup-systemd.sh
+./setup-systemd.sh
+```
+
+**3단계: Vercel에 Nuxt 앱 배포**
+
+```bash
+# Vercel CLI 설치
+npm install -g vercel
+
+# 로그인
+vercel login
+
+# 환경 변수 설정
+vercel env add NUXT_WHISPER_API_URL
+# 값: http://your-oracle-ip:8000
+
+vercel env add NUXT_OLLAMA_HOST
+# 값: http://your-oracle-ip:11434
+
+vercel env add NUXT_OLLAMA_MODEL
+# 값: gemma3
+
+# 배포
+vercel --prod
+```
+
+#### 상세 가이드
+
+더 자세한 배포 방법은 다음 문서를 참조하세요:
+
+- 📘 **[Oracle Cloud 배포 가이드](docs/oracle-cloud-setup.md)**: 인스턴스 생성, 방화벽 설정, Systemd 서비스 등록
+- 📗 **[Vercel 배포 가이드](docs/vercel-deployment.md)**: 환경 변수 설정, 도메인 연결, 자동 배포
+- 📙 **[배포 스크립트 사용법](scripts/README.md)**: 자동화 스크립트 상세 설명
+- 📕 **[통합 테스트 가이드](docs/testing-guide.md)**: 배포 후 전체 시스템 테스트
+
+### 로컬 개발 vs 프로덕션
+
+| 환경 | Whisper | Ollama | Nuxt 앱 |
+|------|---------|---------|---------|
+| **로컬 개발** | localhost:8000 | localhost:11434 | localhost:3000 |
+| **프로덕션** | Oracle Cloud:8000 | Oracle Cloud:11434 | Vercel |
 
 ## 참고 문서
 
+### 배포 가이드
+- 📘 [Oracle Cloud 배포 가이드](docs/oracle-cloud-setup.md)
+- 📗 [Vercel 배포 가이드](docs/vercel-deployment.md)
+- 📙 [배포 스크립트 사용법](scripts/README.md)
+- 📕 [통합 테스트 가이드](docs/testing-guide.md)
+- 📄 [Whisper 서버 가이드](whisper-server/README.md)
+
+### 외부 문서
 - [OpenAI Whisper GitHub](https://github.com/openai/whisper)
 - [Ollama 문서](https://ollama.com/docs)
 - [FastAPI 문서](https://fastapi.tiangolo.com/)
 - [Nuxt 3 문서](https://nuxt.com/docs)
 - [Vue 3 문서](https://vuejs.org/)
 - [Tailwind CSS 문서](https://tailwindcss.com/docs)
+- [Vercel 문서](https://vercel.com/docs)
+- [Oracle Cloud 문서](https://docs.oracle.com/en-us/iaas/Content/home.htm)
 
 ## 비용
 
-**완전 무료** - 모든 기능이 오픈소스 기반으로 작동합니다.
+**완전 무료** - 모든 기능이 오픈소스 및 무료 티어 기반으로 작동합니다.
 
+### 로컬 개발
 - ✅ Whisper (오픈소스 STT)
 - ✅ Ollama (오픈소스 LLM)
 - ✅ Nuxt/Vue (오픈소스 프레임워크)
 - ✅ FastAPI (오픈소스 서버)
+
+### 프로덕션 배포
+- ✅ **Oracle Cloud**: Always Free 티어 (무료)
+  - VM.Standard.A1.Flex: 4 OCPU, 24GB RAM
+  - 또는 VM.Standard.E2.1.Micro: 1 OCPU, 1GB RAM
+- ✅ **Vercel**: Hobby 플랜 (무료)
+  - 월 100GB 대역폭
+  - 무제한 요청
+  - 자동 HTTPS
+- ✅ **도메인 + HTTPS**: Let's Encrypt (무료, 선택사항)
+
+**총 비용: 완전 무료!** 🎉
 
 ## 라이센스
 

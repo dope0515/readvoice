@@ -1,0 +1,43 @@
+# Vercel 배포 시 제외할 파일
+
+# 개발 환경
+.env
+.env.local
+.env.*.local
+
+# 로컬 서버 파일
+whisper-server/
+whisper-server/**
+
+# 문서 (선택사항)
+docs/
+
+# 스크립트
+scripts/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 로그
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 빌드 캐시
+.nuxt/
+.output/
+dist/
+node_modules/

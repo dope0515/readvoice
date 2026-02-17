@@ -5,7 +5,7 @@
       <img
         :src="currentImage"
         :alt="currentStatus"
-        class="w-100 h-32 object-contain transition-all duration-500"
+        class="object-contain transition-all duration-500"
         :class="animationClass"
       />
       
