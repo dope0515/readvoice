@@ -30,7 +30,7 @@ app.add_middleware(
 )
 
 # Whisper 모델 로드 (환경 변수로 모델 선택 가능)
-MODEL_SIZE = os.getenv("WHISPER_MODEL", "base")  # tiny, base, small, medium, large
+MODEL_SIZE = os.getenv("WHISPER_MODEL", "tiny")  # tiny, base, small, medium, large
 print(f"Loading Whisper model: {MODEL_SIZE}")
 model = whisper.load_model(MODEL_SIZE)
 print("Whisper model loaded successfully!")

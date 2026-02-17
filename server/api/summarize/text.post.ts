@@ -1,5 +1,3 @@
-import { Ollama } from 'ollama'
-
 export default defineEventHandler(async (event) => {
   const { text } = await readBody(event)
   
@@ -12,44 +10,66 @@ export default defineEventHandler(async (event) => {
   
   try {
     const config = useRuntimeConfig()
-    const ollamaHost = config.ollama?.host || 'http://localhost:11434'
-    const ollamaModel = config.ollama?.model || 'gemma3'
+    const groqApiKey = config.groqApiKey
     
-    const ollama = new Ollama({ 
-      host: ollamaHost,
-      fetch: (url, options) => {
-        return fetch(url, {
-          ...options,
-          signal: AbortSignal.timeout(60000) // 60초 타임아웃
-        })
+    if (!groqApiKey) {
+      throw createError({
+        statusCode: 500,
+        message: 'GROQ_API_KEY가 설정되지 않았습니다.'
+      })
+    }
+    
+    // Groq Chat Completions API 호출
+    const response = await $fetch<{
+      choices: Array<{
+        message: {
+          content: string
+        }
+      }>
+    }>('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: {
+        model: 'llama-3.3-70b-versatile', // 빠르고 정확한 모델
+        messages: [
+          {
+            role: 'system',
+            content: '당신은 텍스트를 간결하게 요약하는 전문가입니다. 핵심 내용을 3개 요점으로 요약해주세요.'
+          },
+          {
+            role: 'user',
+            content: `다음 텍스트를 3개 요점으로 요약해주세요:\n\n${text}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 300,
+        top_p: 0.9
       }
     })
     
-    const response = await ollama.chat({
-      model: ollamaModel,
-      messages: [{
-        role: 'user',
-        content: `다음 텍스트를 3개 요점으로 요약:\n\n${text}`
-      }],
-      stream: false,
-      options: {
-        temperature: 0.3,      // 더 일관된 출력
-        top_p: 0.9,            // 샘플링 최적화
-        num_predict: 150       // 최대 토큰 제한
-      }
-    })
+    const summary = response.choices[0]?.message?.content || '요약 생성 실패'
     
     return {
       success: true,
-      summary: response.message.content
+      summary
     }
   } catch (error: any) {
-    console.error('Ollama summarization error:', error)
+    console.error('Groq summarization error:', error)
     
-    if (error.message?.includes('ECONNREFUSED') || error.code === 'ECONNREFUSED') {
+    if (error.statusCode === 401) {
       throw createError({
-        statusCode: 503,
-        message: 'Ollama 서버에 연결할 수 없습니다. Ollama가 실행 중인지 확인해주세요.'
+        statusCode: 401,
+        message: 'Groq API 키가 유효하지 않습니다.'
+      })
+    }
+    
+    if (error.statusCode === 429) {
+      throw createError({
+        statusCode: 429,
+        message: 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.'
       })
     }
     

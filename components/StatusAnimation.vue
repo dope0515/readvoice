@@ -4,7 +4,7 @@
       <!-- 이미지에 애니메이션 추가 -->
       <img
         :src="currentImage"
-        :alt="currentStatus"
+        :alt="statusText"
         class="object-contain transition-all duration-500"
         :class="animationClass"
       />

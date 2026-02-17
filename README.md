@@ -1,25 +1,36 @@
-# STT (Speech-to-Text) 프로젝트
+# ReadVoice - 음성-텍스트 변환 서비스
 
-Nuxt 3와 OpenAI Whisper (오픈소스)를 사용한 음성-텍스트 변환 서비스입니다.
+Nuxt 3와 Groq API를 사용한 **빠르고 정확한** 음성-텍스트 변환 서비스입니다.
 
 ## 주요 기능
 
 - 📁 **파일 업로드 STT**: 오디오 파일을 업로드하여 텍스트로 변환
 - 🎤 **실시간 음성 인식**: 마이크로 녹음한 음성을 실시간으로 텍스트로 변환
-- 🤖 **AI 요약**: Ollama를 활용한 STT 결과 자동 요약 (3-5개 핵심 요점)
+- 🤖 **AI 요약**: Groq LLM을 활용한 STT 결과 자동 요약 (3개 핵심 요점)
 - 🎨 **현대적인 UI**: Tailwind CSS를 사용한 반응형 디자인
+- ⚡ **초고속 처리**: Groq API의 빠른 처리 속도 (실시간 수준)
 - 🔒 **안전한 API 연동**: Nuxt Server Routes를 통한 보안 강화
-- 💯 **완전 무료**: 모든 기능 오픈소스 기반, 과금 없음
+- 💯 **완전 무료**: Groq API 무료 플랜 사용
 
-## 기술 스택 (100% 무료 오픈소스)
+## 기술 스택
 
 - **Frontend**: Nuxt 3, Vue 3, TypeScript
 - **Styling**: Tailwind CSS
-- **STT**: OpenAI Whisper (Self-hosted)
-- **AI 요약**: Ollama (Local LLM)
+- **STT**: Groq Whisper API (whisper-large-v3)
+- **AI 요약**: Groq LLM (llama-3.3-70b-versatile)
 - **Runtime**: Node.js
 
-## 설치
+## 왜 Groq API?
+
+| 기능 | Groq API | 셀프 호스팅 |
+|------|----------|------------|
+| **속도** | ⚡ 매우 빠름 (실시간 수준) | 느림 (서버 사양 의존) |
+| **정확도** | 🎯 최고 (whisper-large-v3) | 낮음 (tiny/base 모델) |
+| **비용** | 💰 무료 (일 14,400회) | 서버 비용 발생 |
+| **관리** | ✅ 관리 불필요 | ❌ 서버 설정/유지보수 필요 |
+| **설치** | ✅ API 키만 필요 | ❌ Python, Whisper, Ollama 설치 |
+
+## 빠른 시작
 
 ### 1. 의존성 설치
 
@@ -27,57 +38,13 @@ Nuxt 3와 OpenAI Whisper (오픈소스)를 사용한 음성-텍스트 변환 서
 npm install
 ```
 
-### 2. Whisper 서버 설정
+### 2. Groq API 키 발급
 
-Whisper FastAPI 서버를 로컬에서 실행합니다.
+1. [Groq Console](https://console.groq.com) 가입
+2. API Keys 메뉴에서 새 키 생성
+3. 키 복사
 
-```bash
-cd whisper-server
-
-# 가상환경 생성
-python -m venv venv
-
-# 가상환경 활성화 (Mac/Linux)
-source venv/bin/activate
-
-# 의존성 설치
-pip install -r requirements.txt
-
-# 서버 실행
-python server.py
-```
-
-**첫 실행 시 주의사항:**
-- Whisper 모델 자동 다운로드 (약 1-3GB)
-- ffmpeg 설치 필요: `brew install ffmpeg` (Mac)
-
-자세한 내용은 [`whisper-server/README.md`](whisper-server/README.md)를 참조하세요.
-
-### 3. Ollama 설정 (요약 기능 사용 시)
-
-**⚠️ 중요**: AI 요약 기능은 **사용자의 로컬 컴퓨터에서** Ollama를 실행합니다.
-
-1. [Ollama 다운로드](https://ollama.com/download) 후 설치
-
-2. 모델 다운로드:
-   ```bash
-   ollama pull tinyllama
-   ```
-
-3. Ollama 서버 실행:
-   ```bash
-   ollama serve
-   ```
-
-#### 지원 모델
-
-- **tinyllama** (기본): 가장 빠르고 가벼움 (~0.6GB RAM) ⭐️ 권장
-- **gemma3**: 더 나은 품질, 메모리 사용 증가 (~4GB RAM)
-- **qwen2.5**: 한중일 언어 특화, 더 정확한 요약 (~6GB RAM)
-
-모델은 컴포넌트 파일에서 직접 변경할 수 있습니다.
-
-### 4. 환경 변수 설정
+### 3. 환경 변수 설정
 
 프로젝트 루트에 `.env` 파일 생성:
 
@@ -85,19 +52,21 @@ python server.py
 cp .env.example .env
 ```
 
-`.env` 파일 내용:
+`.env` 파일에 API 키 입력:
 
 ```env
-# Whisper STT API (로컬 개발)
-NUXT_WHISPER_API_URL=http://localhost:8000
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
-**Oracle Cloud 배포 시:**
-```env
-NUXT_WHISPER_API_URL=http://your-oracle-ip:8000
+### 4. 개발 서버 실행
+
+```bash
+npm run dev
 ```
 
-**주의**: Ollama 설정은 더 이상 필요하지 않습니다. 클라이언트가 자동으로 `localhost:11434`에 연결합니다.
+브라우저에서 http://localhost:3000 접속
+
+**끝!** 🎉 서버 설정 없이 바로 사용 가능합니다!
 
 ## 개발 서버 실행
 
