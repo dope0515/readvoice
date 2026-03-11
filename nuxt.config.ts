@@ -17,9 +17,4 @@ export default defineNuxtConfig({
     // 서버 측 전용 (API 키 보호)
     groqApiKey: process.env.GROQ_API_KEY || ''
   },
-  
-  // Nitro 프리셋
-  nitro: {
-    preset: 'node-server'
-  }
 })
