@@ -16,8 +16,8 @@
       <div class="model-select">
         <label for="model-select" class="model-select__label">변환 모델 선택</label>
         <select id="model-select" v-model="selectedModel" class="model-select__input" :disabled="isRecording || isProcessing">
-          <option value="whisper-large-v3">꼼꼼허게 들어유</option>
-          <option value="whisper-large-v3-turbo">대충 빨리 알려줘유</option>
+          <option value="whisper-large-v3">일반모드</option>
+          <option value="whisper-large-v3-turbo">터보모드</option>
         </select>
       </div>
 
