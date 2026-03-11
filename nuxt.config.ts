@@ -15,16 +15,7 @@ export default defineNuxtConfig({
   
   runtimeConfig: {
     // 서버 측 전용 (API 키 보호)
-    groqApiKey: process.env.GROQ_API_KEY || '',
-    
-    // 레거시 설정 (더 이상 사용 안함)
-    whisper: {
-      apiBaseUrl: process.env.NUXT_WHISPER_API_URL || ''
-    },
-    ollama: {
-      host: process.env.NUXT_OLLAMA_HOST || '',
-      model: process.env.NUXT_OLLAMA_MODEL || ''
-    }
+    groqApiKey: process.env.GROQ_API_KEY || ''
   },
   
   // Nitro 프리셋

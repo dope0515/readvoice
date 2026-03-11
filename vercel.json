@@ -4,11 +4,6 @@
   "installCommand": "npm install",
   "framework": "nuxtjs",
   "outputDirectory": ".output/public",
-  "env": {
-    "NUXT_WHISPER_API_URL": "@whisper_api_url",
-    "NUXT_OLLAMA_HOST": "@ollama_host",
-    "NUXT_OLLAMA_MODEL": "@ollama_model"
-  },
   "headers": [
     {
       "source": "/api/(.*)",
