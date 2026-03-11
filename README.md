@@ -7,7 +7,7 @@ Nuxt 3와 Groq API를 사용한 **빠르고 정확한** 음성-텍스트 변환 
 - 📁 **파일 업로드 STT**: 오디오 파일을 업로드하여 텍스트로 변환
 - 🎤 **실시간 음성 인식**: 마이크로 녹음한 음성을 실시간으로 텍스트로 변환
 - 🤖 **AI 요약**: Groq LLM을 활용한 STT 결과 자동 요약 (3개 핵심 요점)
-- 🎨 **현대적인 UI**: Tailwind CSS를 사용한 반응형 디자인
+- 🎨 **현대적인 UI**: SCSS 클래스 아키텍처를 사용한 깔끔한 디자인
 - ⚡ **초고속 처리**: Groq API의 빠른 처리 속도 (실시간 수준)
 - 🔒 **안전한 API 연동**: Nuxt Server Routes를 통한 보안 강화
 - 💯 **완전 무료**: Groq API 무료 플랜 사용
@@ -15,7 +15,7 @@ Nuxt 3와 Groq API를 사용한 **빠르고 정확한** 음성-텍스트 변환 
 ## 기술 스택
 
 - **Frontend**: Nuxt 3, Vue 3, TypeScript
-- **Styling**: Tailwind CSS
+- **Styling**: SCSS
 - **STT**: Groq Whisper API (whisper-large-v3)
 - **AI 요약**: Groq LLM (llama-3.3-70b-versatile)
 - **Runtime**: Node.js

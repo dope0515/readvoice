@@ -7,7 +7,8 @@
 export async function transcribeAudio(
   config: any,
   audioBlob: Blob,
-  filename: string
+  filename: string,
+  model: string = 'whisper-large-v3'
 ): Promise<string> {
   const groqApiKey = config.groqApiKey
 
@@ -21,7 +22,7 @@ export async function transcribeAudio(
   try {
     const formData = new FormData()
     formData.append('file', audioBlob, filename)
-    formData.append('model', 'whisper-large-v3') // Groq의 Whisper 모델
+    formData.append('model', model) // 선택된 Groq Whisper 모델
     formData.append('language', 'ko') // 한국어 최적화
     formData.append('response_format', 'json')
 

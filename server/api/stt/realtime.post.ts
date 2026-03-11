@@ -16,6 +16,7 @@ export default defineEventHandler(async (event) => {
 
     // 오디오 파일 찾기
     const audioField = formData.find(field => field.name === 'audio')
+    const modelField = formData.find(field => field.name === 'model')
     
     if (!audioField || !audioField.data) {
       throw createError({
@@ -25,10 +26,11 @@ export default defineEventHandler(async (event) => {
     }
 
     const filename = audioField.filename || 'recording.wav'
-    const audioBlob = new Blob([audioField.data])
+    const audioBlob = new Blob([new Uint8Array(audioField.data)])
+    const model = modelField?.data ? new TextDecoder().decode(modelField.data) : 'whisper-large-v3'
 
-    // 2. Whisper API로 음성 변환
-    const text = await transcribeAudio(config, audioBlob, filename)
+    // 2. Whisper API로 음성 변환 (선택된 모델 전달)
+    const text = await transcribeAudio(config, audioBlob, filename, model)
 
     return {
       success: true,

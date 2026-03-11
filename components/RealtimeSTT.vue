@@ -1,101 +1,93 @@
 <template>
-  <div class="space-y-6">
+  <div class="realtime-stt">
     <!-- 녹음 상태 표시 -->
-    <div class="text-center">
-      <div class="inline-flex items-center px-4 py-2 rounded-full text-sm font-medium"
-          :class="statusClass">
-        <span class="relative flex h-3 w-3 mr-2">
-          <span v-if="isRecording" 
-                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-3 w-3"
-                :class="isRecording ? 'bg-red-500' : 'bg-gray-400'"></span>
+    <div class="status-indicator">
+      <div class="status-indicator__badge" :class="statusBadgeClass">
+        <span class="status-indicator__icon-wrapper">
+          <span v-if="isRecording" class="status-indicator__ping"></span>
+          <span class="status-indicator__dot" :class="{ 'status-indicator__dot--active': isRecording }"></span>
         </span>
         {{ statusText }}
       </div>
     </div>
 
     <!-- 녹음 컨트롤 -->
-    <div class="flex flex-col items-center space-y-4">
+    <div class="record-control">
+      <div class="model-select">
+        <label for="model-select" class="model-select__label">변환 모델 선택</label>
+        <select id="model-select" v-model="selectedModel" class="model-select__input" :disabled="isRecording || isProcessing">
+          <option value="whisper-large-v3">꼼꼼허게 들어유</option>
+          <option value="whisper-large-v3-turbo">대충 빨리 알려줘유</option>
+        </select>
+      </div>
+
       <button
         @click="toggleRecording"
         :disabled="isProcessing"
         :class="[
-          'relative p-8 rounded-full transition-all duration-200 transform hover:scale-105',
-          isRecording
-            ? 'bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/50'
-            : 'bg-blue-500 hover:bg-blue-600 shadow-lg shadow-blue-500/50',
-          isProcessing ? 'opacity-50 cursor-not-allowed' : ''
+          'record-btn',
+          isRecording ? 'record-btn--recording' : 'record-btn--idle',
+          { 'record-btn--disabled': isProcessing }
         ]"
       >
-        <svg v-if="!isRecording" class="h-12 w-12 text-white" fill="currentColor" viewBox="0 0 24 24">
+        <svg v-if="!isRecording" class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24">
           <path d="M12 15c1.66 0 3-1.34 3-3V6c0-1.66-1.34-3-3-3S9 4.34 9 6v6c0 1.66 1.34 3 3 3z"/>
           <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
         </svg>
-        <svg v-else class="h-12 w-12 text-white" fill="currentColor" viewBox="0 0 24 24">
+        <svg v-else class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24">
           <rect x="6" y="6" width="12" height="12" rx="2"/>
         </svg>
       </button>
 
-      <p class="text-sm text-gray-600">
+      <p class="record-control__hint">
         {{ isRecording ? '녹음 중지하려면 클릭' : '녹음 시작하려면 클릭' }}
       </p>
     </div>
 
     <!-- 녹음 시간 -->
-    <div v-if="isRecording" class="text-center">
-      <p class="text-2xl font-mono font-medium text-gray-700">
+    <div v-if="isRecording" class="record-timer">
+      <p class="record-timer__text">
         {{ formatTime(recordingTime) }}
       </p>
     </div>
 
     <!-- 실시간 텍스트 결과 -->
-    <div v-if="transcriptionText || isProcessing" 
-        class="bg-white rounded-lg border border-gray-200 p-6">
-      <h3 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-        <svg class="h-5 w-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div v-if="transcriptionText || isProcessing" class="result-box">
+      <h3 class="result-box__title">
+        <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
         실시간 변환 결과
       </h3>
       
-      <div class="bg-gray-50 rounded-lg p-4 min-h-[200px] max-h-[400px] overflow-y-auto">
-        <div v-if="isProcessing" class="flex items-center justify-center h-32">
-          <div class="flex space-x-2">
-            <div class="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
-            <div class="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
-            <div class="w-3 h-3 bg-blue-500 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
-          </div>
+      <div class="result-box__content">
+        <div v-if="isProcessing" class="loading-dots">
+          <div class="loading-dots__dot loading-dots__dot--1"></div>
+          <div class="loading-dots__dot loading-dots__dot--2"></div>
+          <div class="loading-dots__dot loading-dots__dot--3"></div>
         </div>
-        <p v-else class="text-gray-800 whitespace-pre-wrap leading-relaxed">
+        <p v-else class="result-box__text">
           {{ transcriptionText || '음성을 인식하는 중...' }}
         </p>
       </div>
 
-      <div v-if="transcriptionText" class="mt-4 flex justify-between items-center">
-        <button
-          @click="clearTranscription"
-          class="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
-        >
+      <div v-if="transcriptionText" class="result-box__actions">
+        <button @click="clearTranscription" class="btn-clear">
           초기화
         </button>
-        <div class="flex space-x-3">
+        <div class="result-box__main-actions">
           <button
             @click="summarizeText"
             :disabled="isSummarizing"
             :class="[
-              'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-              isSummarizing
-                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                : 'bg-green-600 text-white hover:bg-green-700'
+              'btn-summarize',
+              { 'btn-summarize--disabled': isSummarizing }
             ]"
           >
             {{ isSummarizing ? '요약 중...' : '요약하기' }}
           </button>
-          <button
-            @click="copyToClipboard"
-            class="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
-          >
+          <button @click="copyToClipboard" class="btn-copy">
             클립보드에 복사
           </button>
         </div>
@@ -103,57 +95,54 @@
     </div>
 
     <!-- 요약 결과 -->
-    <div v-if="summaryResult" class="bg-green-50 rounded-lg border border-green-200 p-6">
-      <h3 class="text-lg font-medium text-gray-900 mb-4 flex items-center">
-        <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div v-if="summaryResult" class="summary-card">
+      <h3 class="summary-card__title">
+        <svg class="summary-card__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
         </svg>
         AI 요약
       </h3>
-      <div class="bg-white rounded-lg p-4">
-        <p class="text-gray-800 whitespace-pre-wrap">{{ summaryResult }}</p>
+      <div class="summary-card__content">
+        <p class="summary-card__text">{{ summaryResult }}</p>
       </div>
     </div>
 
     <!-- 요약 에러 -->
-    <div v-if="summaryError" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-      <div class="flex">
-        <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+    <div v-if="summaryError" class="alert alert--warning">
+      <div class="alert__content">
+        <svg class="alert__icon" fill="currentColor" viewBox="0 0 20 20">
           <path fill-rule="evenodd" 
                 d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" 
                 clip-rule="evenodd"/>
         </svg>
-        <p class="ml-3 text-sm text-yellow-800">{{ summaryError }}</p>
+        <p class="alert__message">{{ summaryError }}</p>
       </div>
     </div>
 
     <!-- 권한 안내 -->
-    <div v-if="showPermissionInfo" 
-        class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-      <div class="flex">
-        <svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+    <div v-if="showPermissionInfo" class="alert alert--info">
+      <div class="alert__content">
+        <svg class="alert__icon" fill="currentColor" viewBox="0 0 20 20">
           <path fill-rule="evenodd" 
                 d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" 
                 clip-rule="evenodd"/>
         </svg>
-        <div class="ml-3">
-          <p class="text-sm text-blue-800">
-            마이크 권한이 필요합니다. 브라우저에서 마이크 사용을 허용해주세요.
-          </p>
-        </div>
+        <p class="alert__message">
+          마이크 권한이 필요합니다. 브라우저에서 마이크 사용을 허용해주세요.
+        </p>
       </div>
     </div>
 
     <!-- 에러 메시지 -->
-    <div v-if="errorMessage" class="bg-red-50 border border-red-200 rounded-lg p-4">
-      <div class="flex">
-        <svg class="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+    <div v-if="errorMessage" class="alert alert--error">
+      <div class="alert__content">
+        <svg class="alert__icon" fill="currentColor" viewBox="0 0 20 20">
           <path fill-rule="evenodd" 
                 d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" 
                 clip-rule="evenodd"/>
         </svg>
-        <p class="ml-3 text-sm text-red-800">{{ errorMessage }}</p>
+        <p class="alert__message">{{ errorMessage }}</p>
       </div>
     </div>
   </div>
@@ -180,6 +169,7 @@ const showPermissionInfo = ref(false)
 const isSummarizing = ref(false)
 const summaryResult = ref('')
 const summaryError = ref('')
+const selectedModel = ref('whisper-large-v3')
 
 let mediaRecorder: MediaRecorder | null = null
 let recordingInterval: number | null = null
@@ -191,10 +181,10 @@ const statusText = computed(() => {
   return '대기'
 })
 
-const statusClass = computed(() => {
-  if (isProcessing.value) return 'bg-yellow-100 text-yellow-800'
-  if (isRecording.value) return 'bg-red-100 text-red-800'
-  return 'bg-gray-100 text-gray-800'
+const statusBadgeClass = computed(() => {
+  if (isProcessing.value) return 'status-indicator__badge--processing'
+  if (isRecording.value) return 'status-indicator__badge--recording'
+  return 'status-indicator__badge--idle'
 })
 
 const formatTime = (seconds: number): string => {
@@ -268,6 +258,7 @@ const processAudio = async (audioBlob: Blob): Promise<void> => {
   try {
     const formData = new FormData()
     formData.append('audio', audioBlob, 'recording.wav')
+    formData.append('model', selectedModel.value)
     
     const response = await $fetch<APIResponse>('/api/stt/realtime', {
       method: 'POST',
@@ -311,7 +302,6 @@ const summarizeText = async (): Promise<void> => {
   summaryResult.value = ''
   
   try {
-    // Groq API를 통한 요약 (서버 API 사용)
     const response = await fetch('/api/summarize/text', {
       method: 'POST',
       headers: {
@@ -346,3 +336,417 @@ onUnmounted(() => {
   }
 })
 </script>
+
+<style lang="scss" scoped>
+.realtime-stt {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.status-indicator {
+  text-align: center;
+
+  &__badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 500;
+
+    &--processing {
+      background-color: #fef9c3;
+      color: #854d0e;
+    }
+
+    &--recording {
+      background-color: #fee2e2;
+      color: #991b1b;
+    }
+
+    &--idle {
+      background-color: #f3f4f6;
+      color: #1f2937;
+    }
+  }
+
+  &__icon-wrapper {
+    position: relative;
+    display: flex;
+    height: 0.75rem;
+    width: 0.75rem;
+    margin-right: 0.5rem;
+  }
+
+  &__ping {
+    position: absolute;
+    display: inline-flex;
+    height: 100%;
+    width: 100%;
+    border-radius: 9999px;
+    background-color: #f87171;
+    opacity: 0.75;
+    animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  &__dot {
+    position: relative;
+    display: inline-flex;
+    border-radius: 9999px;
+    height: 0.75rem;
+    width: 0.75rem;
+    background-color: #9ca3af;
+
+    &--active {
+      background-color: #ef4444;
+    }
+  }
+}
+
+.record-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+
+  &__hint {
+    font-size: 0.875rem;
+    color: #4b5563;
+    margin: 0;
+  }
+}
+
+.model-select {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 24rem;
+
+  &__label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #4b5563;
+  }
+
+  &__input {
+    width: 100%;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #d1d5db;
+    background-color: #ffffff;
+    font-size: 0.875rem;
+    color: #111827;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+    &:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    
+    &:disabled {
+      background-color: #f3f4f6;
+      color: #9ca3af;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.record-btn {
+  position: relative;
+  padding: 2rem;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    transform: scale(1.05);
+  }
+
+  &--idle {
+    background-color: #3b82f6;
+    box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.5);
+
+    &:hover {
+      background-color: #2563eb;
+    }
+  }
+
+  &--recording {
+    background-color: #ef4444;
+    box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.5);
+
+    &:hover {
+      background-color: #dc2626;
+    }
+  }
+
+  &--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+
+    &:hover {
+      transform: none;
+    }
+  }
+
+  &__icon {
+    height: 3rem;
+    width: 3rem;
+    color: #ffffff;
+  }
+}
+
+.record-timer {
+  text-align: center;
+
+  &__text {
+    font-size: 1.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-weight: 500;
+    color: #374151;
+    margin: 0;
+  }
+}
+
+.result-box {
+  background-color: #ffffff;
+  border-radius: 0.5rem;
+  border: 1px solid #e5e7eb;
+  padding: 1.5rem;
+
+  &__title {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: #111827;
+    margin: 0 0 1rem 0;
+    display: flex;
+    align-items: center;
+  }
+
+  &__icon {
+    height: 1.25rem;
+    width: 1.25rem;
+    color: #3b82f6;
+    margin-right: 0.5rem;
+  }
+
+  &__content {
+    background-color: #f9fafb;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    min-height: 12.5rem;
+    max-height: 25rem;
+    overflow-y: auto;
+  }
+
+  &__text {
+    color: #1f2937;
+    white-space: pre-wrap;
+    line-height: 1.625;
+    margin: 0;
+  }
+
+  &__actions {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  &__main-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+}
+
+.loading-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 8rem;
+  gap: 0.5rem;
+
+  &__dot {
+    width: 0.75rem;
+    height: 0.75rem;
+    background-color: #3b82f6;
+    border-radius: 50%;
+    animation: bounce 1s infinite;
+
+    &--1 { animation-delay: 0ms; }
+    &--2 { animation-delay: 150ms; }
+    &--3 { animation-delay: 300ms; }
+  }
+}
+
+.btn-clear {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #4b5563;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+
+  &:hover {
+    color: #1f2937;
+  }
+}
+
+.btn-summarize {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 0.5rem;
+  transition: background-color 0.2s ease, color 0.2s ease;
+  background-color: #16a34a;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+
+  &:hover {
+    background-color: #15803d;
+  }
+
+  &--disabled {
+    background-color: #e5e7eb;
+    color: #6b7280;
+    cursor: not-allowed;
+
+    &:hover {
+      background-color: #e5e7eb;
+    }
+  }
+}
+
+.btn-copy {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #2563eb;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s ease;
+
+  &:hover {
+    color: #1e40af;
+  }
+}
+
+.summary-card {
+  background-color: #f0fdf4;
+  border-radius: 0.5rem;
+  border: 1px solid #bbf7d0;
+  padding: 1.5rem;
+
+  &__title {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: #111827;
+    margin: 0 0 1rem 0;
+    display: flex;
+    align-items: center;
+  }
+
+  &__icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-right: 0.5rem;
+    color: #16a34a;
+  }
+
+  &__content {
+    background-color: #ffffff;
+    border-radius: 0.5rem;
+    padding: 1rem;
+  }
+
+  &__text {
+    color: #1f2937;
+    white-space: pre-wrap;
+    margin: 0;
+  }
+}
+
+.alert {
+  border-radius: 0.5rem;
+  padding: 1rem;
+  border: 1px solid transparent;
+
+  &__content {
+    display: flex;
+  }
+
+  &__icon {
+    height: 1.25rem;
+    width: 1.25rem;
+    flex-shrink: 0;
+  }
+
+  &__message {
+    margin: 0 0 0 0.75rem;
+    font-size: 0.875rem;
+  }
+
+  &--info {
+    background-color: #eff6ff;
+    border-color: #bfdbfe;
+
+    .alert__icon {
+      color: #60a5fa;
+    }
+    .alert__message {
+      color: #1e40af;
+    }
+  }
+
+  &--warning {
+    background-color: #fefce8;
+    border-color: #fef08a;
+
+    .alert__icon {
+      color: #facc15;
+    }
+    .alert__message {
+      color: #9f580a;
+    }
+  }
+
+  &--error {
+    background-color: #fef2f2;
+    border-color: #fecaca;
+
+    .alert__icon {
+      color: #f87171;
+    }
+    .alert__message {
+      color: #991b1b;
+    }
+  }
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(-25%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+</style>

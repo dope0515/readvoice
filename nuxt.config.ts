@@ -11,8 +11,7 @@ export default defineNuxtConfig({
     host: '127.0.0.1'
   },
   
-  modules: ['@nuxtjs/tailwindcss'],
-  css: ['~/assets/css/main.css'],
+  css: ['~/assets/scss/main.scss'],
   
   runtimeConfig: {
     // 서버 측 전용 (API 키 보호)
