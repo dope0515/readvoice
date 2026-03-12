@@ -35,29 +35,26 @@ const tabs: Tab[] = [
 
 <style lang="scss" scoped>
 .tab-navigation {
-  display: none;
-  border-bottom: 1px solid #e5e7eb;
 
   .tab-list {
     display: flex;
-    gap: 2rem;
-    margin-bottom: -1px;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
   }
 
   .tab-button {
     white-space: nowrap;
-    padding: 1rem 0.25rem;
-    border-bottom: 2px solid transparent;
+    padding: 0.5rem;
     font-weight: 500;
     font-size: 0.875rem;
     color: #6b7280;
     transition: color 0.2s ease, border-color 0.2s ease;
+    border-radius: 0.5rem;
     background: transparent;
     cursor: pointer;
 
     &:hover {
       color: #374151;
-      border-color: #d1d5db;
     }
 
     &--active {
@@ -66,7 +63,6 @@ const tabs: Tab[] = [
 
       &:hover {
         color: #2563eb;
-        border-color: #3b82f6;
       }
     }
   }

@@ -77,34 +77,121 @@
           초기화
         </button>
         <div class="result-box__main-actions">
+          <button v-if="recordedAudioBlob" @click="downloadAudio" class="btn-secondary">
+            오디오 다운로드
+          </button>
+          <button @click="copyToClipboard" class="btn-secondary">
+            복사
+          </button>
+          
           <button
-            @click="summarizeText"
+            @click="summarizeText('summary')"
             :disabled="isSummarizing"
             :class="[
-              'btn-summarize',
-              { 'btn-summarize--disabled': isSummarizing }
+              'btn-primary',
+              { 'btn-primary--disabled': isSummarizing }
             ]"
           >
-            {{ isSummarizing ? '요약 중...' : '요약하기' }}
+            요약하기
           </button>
-          <button @click="copyToClipboard" class="btn-copy">
-            클립보드에 복사
-          </button>
+
+          <div class="meeting-minutes-wrapper">
+            <input 
+              v-model="attendeesInput" 
+              type="text" 
+              class="attendees-input" 
+              placeholder="참석자 입력 (선택)"
+              :disabled="isSummarizing"
+            />
+            <button
+              @click="summarizeText('meeting_minutes')"
+              :disabled="isSummarizing"
+              :class="[
+                'btn-primary btn-primary--dark',
+                { 'btn-primary--disabled': isSummarizing }
+              ]"
+            >
+              회의록 작성
+            </button>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- 요약 결과 -->
-    <div v-if="summaryResult" class="summary-card">
+    <!-- 요약/회의록 결과 -->
+    <div v-if="summaryResult" class="summary-card" id="summary-print-area">
       <h3 class="summary-card__title">
         <svg class="summary-card__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
         </svg>
-        AI 요약
+        {{ summaryMode === 'meeting_minutes' ? '회의록 결과' : 'AI 요약 결과' }}
       </h3>
-      <div class="summary-card__content">
-        <p class="summary-card__text">{{ summaryResult }}</p>
+      
+      <!-- 일반 요약 -->
+      <div v-if="summaryMode === 'summary'" class="summary-card__content" v-html="formattedSummaryResult"></div>
+      
+      <!-- 회의록 테이블 -->
+      <div v-if="summaryMode === 'meeting_minutes' && parsedMeetingMinutes" class="summary-card__content meeting-table-wrapper">
+        <table class="meeting-table">
+          <tbody>
+            <tr>
+              <th>회의 주제</th>
+              <td>{{ parsedMeetingMinutes.topic }}</td>
+            </tr>
+            <tr>
+              <th>회의 일시</th>
+              <td>{{ parsedMeetingMinutes.date }}</td>
+            </tr>
+            <tr>
+              <th>참석자</th>
+              <td>{{ parsedMeetingMinutes.attendees }}</td>
+            </tr>
+            <tr>
+              <th>주요 논의 사항</th>
+              <td>
+                <ul>
+                  <li v-for="(item, i) in parsedMeetingMinutes.discussions" :key="i">{{ item }}</li>
+                </ul>
+              </td>
+            </tr>
+            <tr>
+              <th>결정 사항</th>
+              <td>
+                <ul>
+                  <li v-for="(item, i) in parsedMeetingMinutes.decisions" :key="i">{{ item }}</li>
+                </ul>
+              </td>
+            </tr>
+            <tr class="action-items-row">
+              <th>추후 진행 사항</th>
+              <td>
+                <ul>
+                  <li v-for="(item, i) in parsedMeetingMinutes.actionItems" :key="i">{{ item }}</li>
+                </ul>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="summary-card__actions no-print">
+        <button v-if="summaryMode === 'meeting_minutes'" @click="exportToPdf" class="btn-action">
+          <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+          PDF 저장
+        </button>
+        <button v-if="summaryMode === 'meeting_minutes'" @click="exportToExcel" class="btn-action">
+          <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+          EXCEL 저장
+        </button>
+        <button v-if="summaryMode === 'summary'" @click="downloadSummary" class="btn-action">
+          <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+          TXT 저장
+        </button>
+        <button @click="sendEmail" class="btn-action">
+          <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+          메일 보내기
+        </button>
       </div>
     </div>
 
@@ -170,6 +257,29 @@ const isSummarizing = ref(false)
 const summaryResult = ref('')
 const summaryError = ref('')
 const selectedModel = ref('whisper-large-v3')
+const recordedAudioBlob = ref<Blob | null>(null)
+const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
+const attendeesInput = ref('')
+
+const parsedMeetingMinutes = computed(() => {
+  if (summaryMode.value === 'meeting_minutes' && summaryResult.value) {
+    try {
+      return JSON.parse(summaryResult.value)
+    } catch (e) {
+      console.error('JSON parsing failed for meeting minutes', e)
+      return null
+    }
+  }
+  return null
+})
+
+const formattedSummaryResult = computed(() => {
+  if (!summaryResult.value) return ''
+  // 간단히 마크다운 볼드(**text**) 줄바꿈 처리 반영
+  let html = summaryResult.value.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\n/g, '<br>')
+  return `<div class="formatted-text">${html}</div>`
+})
 
 let mediaRecorder: MediaRecorder | null = null
 let recordingInterval: number | null = null
@@ -217,6 +327,7 @@ const startRecording = async (): Promise<void> => {
 
     mediaRecorder.onstop = async () => {
       const audioBlob = new Blob(audioChunks, { type: 'audio/wav' })
+      recordedAudioBlob.value = audioBlob // 다운로드를 위해 Blob 유지
       await processAudio(audioBlob)
     }
 
@@ -283,6 +394,7 @@ const clearTranscription = (): void => {
   recordingTime.value = 0
   summaryResult.value = ''
   summaryError.value = ''
+  recordedAudioBlob.value = null
 }
 
 const copyToClipboard = async (): Promise<void> => {
@@ -294,12 +406,13 @@ const copyToClipboard = async (): Promise<void> => {
   }
 }
 
-const summarizeText = async (): Promise<void> => {
+const summarizeText = async (mode: 'summary' | 'meeting_minutes' = 'summary'): Promise<void> => {
   if (!transcriptionText.value) return
   
   isSummarizing.value = true
   summaryError.value = ''
   summaryResult.value = ''
+  summaryMode.value = mode
   
   try {
     const response = await fetch('/api/summarize/text', {
@@ -308,7 +421,10 @@ const summarizeText = async (): Promise<void> => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        text: transcriptionText.value
+        text: transcriptionText.value,
+        mode,
+        attendees: mode === 'meeting_minutes' ? attendeesInput.value : '',
+        date: mode === 'meeting_minutes' ? new Date().toLocaleString('ko-KR') : ''
       })
     })
     
@@ -325,6 +441,84 @@ const summarizeText = async (): Promise<void> => {
   } finally {
     isSummarizing.value = false
   }
+}
+
+const downloadAudio = () => {
+  if (!recordedAudioBlob.value) return
+  const url = URL.createObjectURL(recordedAudioBlob.value)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `녹음음성_${new Date().getTime()}.wav`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const downloadSummary = () => {
+  if (!summaryResult.value) return
+  // TXT 저장 로직 유지
+  const contentToSave = summaryMode.value === 'meeting_minutes' ? JSON.stringify(JSON.parse(summaryResult.value), null, 2) : summaryResult.value
+  const blob = new Blob([contentToSave], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = summaryMode.value === 'meeting_minutes' ? `회의록_${new Date().getTime()}.txt` : `요약_${new Date().getTime()}.txt`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const exportToPdf = () => {
+  window.print()
+}
+
+const exportToExcel = () => {
+  if (!parsedMeetingMinutes.value) return
+  const data = parsedMeetingMinutes.value
+  
+  // CSV 형식으로 데이터 조립
+  const escapeCsv = (str: string) => `"${String(str).replace(/"/g, '""')}"`
+  const arrayToBulletCsv = (arr: string[]) => escapeCsv((arr || []).map(item => `- ${item}`).join('\n'))
+  
+  const csvRows = [
+    ['항목', '내용'],
+    ['회의 주제', escapeCsv(data.topic)],
+    ['회의 일시', escapeCsv(data.date)],
+    ['참석자', escapeCsv(data.attendees)],
+    ['주요 논의 사항', arrayToBulletCsv(data.discussions)],
+    ['결정 사항', arrayToBulletCsv(data.decisions)],
+    ['추후 진행 사항', arrayToBulletCsv(data.actionItems)]
+  ]
+  
+  // 엑셀에서 한글이 깨지지 않도록 BOM 추가
+  const bom = '\uFEFF'
+  const csvContent = bom + csvRows.map(e => e.join(',')).join('\n')
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `회의록_${new Date().getTime()}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const sendEmail = () => {
+  if (!summaryResult.value) return
+  const subject = encodeURIComponent(summaryMode.value === 'meeting_minutes' ? '회의록 공유' : '음성 요약 공유')
+  
+  let content = summaryResult.value
+  if (summaryMode.value === 'meeting_minutes' && parsedMeetingMinutes.value) {
+    const data = parsedMeetingMinutes.value
+    content = `[회의 주제]: ${data.topic}\n[일시]: ${data.date}\n[참석자]: ${data.attendees}\n\n[논의 사항]\n${data.discussions.map((d: string) => `- ${d}`).join('\n')}\n\n[결정 사항]\n${data.decisions.map((d: string) => `- ${d}`).join('\n')}\n\n[Action Items]\n${data.actionItems.map((d: string) => `- ${d}`).join('\n')}`
+  }
+
+  const body = encodeURIComponent(content)
+  window.location.href = `mailto:?subject=${subject}&body=${body}`
 }
 
 onUnmounted(() => {
@@ -560,6 +754,8 @@ onUnmounted(() => {
 
   &__main-actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
   }
 }
@@ -599,7 +795,35 @@ onUnmounted(() => {
   }
 }
 
-.btn-summarize {
+.meeting-minutes-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #f3f4f6;
+  padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #d1d5db;
+
+  .attendees-input {
+    border: none;
+    background: transparent;
+    font-size: 0.875rem;
+    color: #111827;
+    outline: none;
+    width: 140px;
+
+    &::placeholder {
+      color: #9ca3af;
+    }
+    
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+  }
+}
+
+.btn-primary {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   font-weight: 500;
@@ -614,6 +838,11 @@ onUnmounted(() => {
     background-color: #15803d;
   }
 
+  &--dark {
+    background-color: #4f46e5;
+    &:hover { background-color: #4338ca; }
+  }
+
   &--disabled {
     background-color: #e5e7eb;
     color: #6b7280;
@@ -625,17 +854,19 @@ onUnmounted(() => {
   }
 }
 
-.btn-copy {
+.btn-secondary {
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
   font-weight: 500;
   color: #2563eb;
-  background: none;
+  background-color: #eff6ff;
+  border-radius: 0.5rem;
   border: none;
   cursor: pointer;
-  transition: color 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease;
 
   &:hover {
+    background-color: #dbeafe;
     color: #1e40af;
   }
 }
@@ -666,12 +897,120 @@ onUnmounted(() => {
     background-color: #ffffff;
     border-radius: 0.5rem;
     padding: 1rem;
+    line-height: 1.625;
+
+    // v-html 포맷팅 클래스
+    :deep(strong) {
+      color: #16a34a;
+      font-weight: 600;
+    }
   }
 
-  &__text {
+  &__actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    justify-content: flex-end;
+  }
+}
+
+.btn-action {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #16a34a;
+  background-color: #dcfce7;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:hover {
+    background-color: #bbf7d0;
+  }
+
+  &__icon {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+}
+
+/* 회의록 테이블 스타일 */
+.meeting-table-wrapper {
+  overflow-x: auto;
+}
+
+.meeting-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  text-align: left;
+  border: 1px solid #e5e7eb;
+
+  th, td {
+    padding: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  th {
+    background-color: #f9fafb;
+    font-weight: 600;
+    color: #374151;
+    width: 25%;
+    border-right: 1px solid #e5e7eb;
+    vertical-align: top;
+  }
+
+  td {
     color: #1f2937;
-    white-space: pre-wrap;
+    vertical-align: top;
+  }
+
+  ul {
     margin: 0;
+    padding-left: 1.25rem;
+    
+    li {
+      margin-bottom: 0.25rem;
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+
+  tr:last-child th,
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  .action-items-row th {
+    color: #b45309;
+    background-color: #fffbeb;
+  }
+}
+
+/* 프린트 시 CSS 설정 (PDF 변환) */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #summary-print-area, #summary-print-area * {
+    visibility: visible;
+  }
+  #summary-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+  }
+  #summary-print-area .no-print {
+    display: none !important;
   }
 }
 
