@@ -1,33 +1,33 @@
 <template>
   <div class="app-layout">
-    <!-- 헤더 -->
+    <!-- Google-style 헤더 -->
     <header class="app-header">
       <div class="app-header__container">
-        <div class="app-header__content">
-          <div class="app-header__brand">
-            <svg class="app-header__logo" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
-            </svg>
-            <h1 class="app-header__title">읽어줄래요</h1>
-            <p class="app-header__subtitle">(마음만은 고품격 음성-텍스트 변환 서비스)</p>
-          </div>
+        <div class="app-header__brand">
+          <!-- Multi-color Google-style mic icon -->
+          <svg class="app-header__logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="20" cy="20" r="20" fill="#ffffff"/>
+            <rect x="15" y="8" width="10" height="16" rx="5" fill="#4285F4"/>
+            <path d="M10 20c0 5.523 4.477 10 10 10s10-4.477 10-10" stroke="#EA4335" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+            <line x1="20" y1="30" x2="20" y2="35" stroke="#34A853" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="15" y1="35" x2="25" y2="35" stroke="#FBBC04" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <span class="app-header__title">
+            <span class="app-header__title-g">읽</span><span class="app-header__title-o">어</span><span class="app-header__title-o2">줄</span><span class="app-header__title-g2">래</span><span class="app-header__title-r">요</span>
+          </span>
+        </div>
+        <div class="app-header__right">
+          <span class="app-header__badge">Beta</span>
         </div>
       </div>
     </header>
 
-    <!-- 메인 컨텐츠 -->
+    <!-- 메인 -->
     <main class="app-main">
       <div class="app-main__card">
-        <!-- 탭 네비게이션 -->
         <div class="app-main__tabs">
-          <TabNavigation 
-            :active-tab="activeTab" 
-            @change-tab="changeTab" 
-          />
+          <TabNavigation :active-tab="activeTab" @change-tab="changeTab" />
         </div>
-
-        <!-- 컨텐츠 영역 -->
         <div class="app-main__content">
           <transition
             mode="out-in"
@@ -41,10 +41,8 @@
           </transition>
         </div>
       </div>
-
     </main>
 
-    <!-- 푸터 (라이선스 고지) -->
     <LicenseFooter />
   </div>
 </template>
@@ -53,39 +51,30 @@
 import { ref } from 'vue'
 
 const activeTab = ref('file')
-
-const changeTab = (tabId: string) => {
-  activeTab.value = tabId
-}
+const changeTab = (tabId: string) => { activeTab.value = tabId }
 </script>
 
 <style lang="scss" scoped>
 .app-layout {
   min-height: 100vh;
-  background: linear-gradient(to bottom right, #eff6ff, #e0e7ff);
+  background-color: #f8f9fa;
   display: flex;
   flex-direction: column;
 }
 
+/* ── Google-style Header ── */
 .app-header {
   background-color: #ffffff;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid #e8eaed;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 
   &__container {
-    max-width: 80rem;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 1.5rem 1rem;
-
-    @media (min-width: 640px) {
-      padding: 1.5rem 1.5rem;
-    }
-
-    @media (min-width: 1024px) {
-      padding: 1.5rem 2rem;
-    }
-  }
-
-  &__content {
+    padding: 0 24px;
+    height: 64px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -94,62 +83,66 @@ const changeTab = (tabId: string) => {
   &__brand {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 12px;
   }
 
   &__logo {
-    height: 2rem;
-    width: 2rem;
-    color: #2563eb;
+    width: 40px;
+    height: 40px;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.12));
   }
 
   &__title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: #111827;
-    margin: 0;
+    font-size: 22px;
+    font-weight: 400;
+    letter-spacing: -0.3px;
+    
+    // Google multi-color letters
+    &-g  { color: #4285F4; }
+    &-o  { color: #EA4335; }
+    &-o2 { color: #FBBC04; }
+    &-g2 { color: #4285F4; }
+    &-r  { color: #34A853; }
   }
 
-  &__subtitle {
-    font-size: 0.875rem;
-    color: #6b7280;
-    margin: 0;
+  &__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__badge {
+    font-size: 11px;
+    font-weight: 500;
+    color: #1a73e8;
+    background-color: #e8f0fe;
+    padding: 3px 8px;
+    border-radius: 12px;
+    letter-spacing: 0.3px;
   }
 }
 
+/* ── Main Content ── */
 .app-main {
-  max-width: 80rem;
+  max-width: 900px;
   margin: 0 auto;
-  padding: 2rem 1rem;
+  padding: 32px 16px;
   flex-grow: 1;
   width: 100%;
 
-  @media (min-width: 640px) {
-    padding: 2rem 1.5rem;
-  }
-
-  @media (min-width: 1024px) {
-    padding: 2rem 2rem;
-  }
+  @media (min-width: 640px) { padding: 32px 24px; }
+  @media (min-width: 1024px) { padding: 40px 24px; }
 
   &__card {
     background-color: #ffffff;
-    border-radius: 0.5rem;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    overflow: hidden;
-    padding: 2rem 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #e8eaed;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+    padding: 32px 28px;
   }
-
 }
 
-/* Transition classes */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
+/* Transitions */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
