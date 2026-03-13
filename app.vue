@@ -16,9 +16,6 @@
             읽어줄래요
           </span>
         </div>
-        <div class="app-header__right">
-          <span class="app-header__badge">Beta</span>
-        </div>
       </div>
     </header>
 
