@@ -13,7 +13,7 @@
             <line x1="15" y1="35" x2="25" y2="35" stroke="#FBBC04" stroke-width="2.5" stroke-linecap="round"/>
           </svg>
           <span class="app-header__title">
-            <span class="app-header__title-g">읽</span><span class="app-header__title-o">어</span><span class="app-header__title-o2">줄</span><span class="app-header__title-g2">래</span><span class="app-header__title-r">요</span>
+            읽어줄래요
           </span>
         </div>
         <div class="app-header__right">
