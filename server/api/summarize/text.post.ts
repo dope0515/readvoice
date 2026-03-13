@@ -1,11 +1,30 @@
 export default defineEventHandler(async (event) => {
-  const { text } = await readBody(event)
+  const { text, mode = 'summary', attendees = '', date = '' } = await readBody(event)
   
   if (!text) {
     throw createError({
       statusCode: 400,
       message: '요약할 텍스트가 없습니다.'
     })
+  }
+
+  let systemPrompt = ''
+  let userPrompt = ''
+
+  if (mode === 'meeting_minutes') {
+    systemPrompt = '당신은 전문적인 비서입니다. 제공된 텍스트를 바탕으로 완벽한 비즈니스 회의록을 추출하여, 반드시 다음의 JSON 형식으로만 응답하세요. 마크다운(```json)이나 다른 설명은 절대 포함하지 마세요.\n\n{\n  "topic": "회의 주제 요약",\n  "date": "회의 일시",\n  "attendees": "참석자 명단",\n  "discussions": ["주요 논의 사항 1", "주요 논의 사항 2"],\n  "decisions": ["결정 사항 1"],\n  "actionItems": ["추후 진행 및 확인 필요 사항 1"]\n}'
+    userPrompt = `다음 내용으로 회의록을 생성해주세요:\n[회의 일시]: ${date || '미상'}\n[참석자]: ${attendees || '미상'}\n[내용]:\n${text}`
+  } else if (mode === 'summary') {
+    systemPrompt = '당신은 텍스트를 간결하게 요약하는 전문가입니다. 핵심 내용을 3개 요점으로 요약해주세요.'
+    userPrompt = `다음 텍스트를 3개 요점으로 요약해주세요:\n\n${text}`
+  } else if (mode === 'format') {
+    systemPrompt = '당신은 한국어 텍스트를 교정하는 전문 편집자입니다. 음성을 텍스트로 변환한 내용을 받아 다음 규칙에 따라 정리해주세요:\n1. 문법에 맞도록 교정\n2. 단락을 의미 단위로 구분하여 줄바꿈(\\n\\n) 추가\n3. 원래 내용을 요약하거나 변형하지 말고 그대로 유지\n4. 불필요한 반복이나 um, 어 같은 간투사 제거\n5. 교정된 텍스트만 반환하고 설명이나 주석 없이 결과만 출력'
+    userPrompt = `다음 음성 변환 텍스트를 교정해주세요:\n\n${text}`
+  } else if (mode === 'diarization') {
+    systemPrompt = '당신은 회의 텍스트에서 화자를 구분하는 전문가입니다. 제공된 텍스트를 분석하여 문맥, 말투, 내용의 변화를 기반으로 화자를 추론하여 구분해주세요.\n반드시 다음 JSON 배열 형식으로만 응답하세요. 마크다운이나 다른 설명은 절대 포함하지 마세요.\n[\n  {"speaker": "화자 1", "text": "발화 내용"},\n  {"speaker": "화자 2", "text": "발화 내용"}\n]\n\n규칙:\n- 화자는 "화자 1", "화자 2" 등으로 명명\n- 같은 화자가 연속으로 발화해도 분리 가능\n- 각 발화 단위는 완결된 문장 또는 의미 단위로 분리\n- 최소 2명 이상의 화자로 구분 시도'
+    userPrompt = `다음 회의 텍스트에서 화자를 구분해주세요:\n\n${text}`
+  } else {
+    throw createError({ statusCode: 400, message: '지원하지 않는 모드입니다.' })
   }
   
   try {
@@ -19,7 +38,21 @@ export default defineEventHandler(async (event) => {
       })
     }
     
-    // Groq Chat Completions API 호출
+    const requestBody: any = {
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: mode === 'format' ? 0.1 : 0.3,
+      max_tokens: mode === 'diarization' ? 2048 : 1024,
+      top_p: 0.9
+    }
+
+    if (mode === 'meeting_minutes' || mode === 'diarization') {
+      requestBody.response_format = { type: 'json_object' }
+    }
+
     const response = await $fetch<{
       choices: Array<{
         message: {
@@ -32,25 +65,27 @@ export default defineEventHandler(async (event) => {
         'Authorization': `Bearer ${groqApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: {
-        model: 'llama-3.3-70b-versatile', // 빠르고 정확한 모델
-        messages: [
-          {
-            role: 'system',
-            content: '당신은 텍스트를 간결하게 요약하는 전문가입니다. 핵심 내용을 3개 요점으로 요약해주세요.'
-          },
-          {
-            role: 'user',
-            content: `다음 텍스트를 3개 요점으로 요약해주세요:\n\n${text}`
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 300,
-        top_p: 0.9
-      }
+      body: requestBody
     })
     
-    const summary = response.choices[0]?.message?.content || '요약 생성 실패'
+    let summary = response.choices[0]?.message?.content || '처리 실패'
+
+    // diarization: JSON object → JSON array 추출
+    if (mode === 'diarization') {
+      try {
+        const parsed = JSON.parse(summary)
+        // LLM이 {segments:[...]} 또는 {diarization:[...]} 등으로 감쌀 수 있으므로 배열 추출
+        if (Array.isArray(parsed)) {
+          summary = JSON.stringify(parsed)
+        } else {
+          // 첫 번째 배열 값을 찾아 반환
+          const arrKey = Object.keys(parsed).find(k => Array.isArray(parsed[k]))
+          summary = arrKey ? JSON.stringify(parsed[arrKey]) : summary
+        }
+      } catch (e) {
+        // JSON 파싱 실패 시 원본 반환
+      }
+    }
     
     return {
       success: true,
@@ -60,22 +95,13 @@ export default defineEventHandler(async (event) => {
     console.error('Groq summarization error:', error)
     
     if (error.statusCode === 401) {
-      throw createError({
-        statusCode: 401,
-        message: 'Groq API 키가 유효하지 않습니다.'
-      })
+      throw createError({ statusCode: 401, message: 'Groq API 키가 유효하지 않습니다.' })
     }
     
     if (error.statusCode === 429) {
-      throw createError({
-        statusCode: 429,
-        message: 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.'
-      })
+      throw createError({ statusCode: 429, message: 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.' })
     }
     
-    throw createError({
-      statusCode: 500,
-      message: '요약 생성에 실패했습니다.'
-    })
+    throw createError({ statusCode: 500, message: '요약 생성에 실패했습니다.' })
   }
 })
