@@ -142,8 +142,7 @@ stt/
 │   │   └── summarize/
 │   │       └── text.post.ts          # AI 요약 API
 │   └── utils/
-│       ├── whisper.ts                # Whisper API 유틸리티
-│       └── rtzr.ts                   # 기타 유틸리티
+│       └── whisper.ts                # Whisper API 유틸리티
 ├── whisper-server/                   # Whisper FastAPI 서버
 │   ├── server.py                     # FastAPI 서버
 │   ├── requirements.txt              # Python 의존성
