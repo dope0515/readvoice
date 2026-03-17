@@ -24,6 +24,7 @@ export async function transcribeAudio(
     formData.append('file', audioBlob, filename)
     formData.append('model', model) // 선택된 Groq Whisper 모델
     formData.append('language', 'ko') // 한국어 최적화
+    formData.append('prompt', '이것은 회의록 작성을 위한 한국어 음성 녹음입니다. 맞춤법과 띄어쓰기를 정확하게 유지하고, 회의 문맥에 맞는 전문 용어를 정확하게 인식해 주세요.')
     formData.append('response_format', 'json')
 
     const response = await $fetch<{ text: string }>(
