@@ -285,6 +285,47 @@ const attendeesInput = ref('')
 const diarizationResult = ref<DiarizationSegment[] | null>(null)
 const isExportingPdf = ref(false)
 
+// 배경 녹음 유지를 위한 Wake Lock & Silence Audio
+let wakeLock: any = null
+let silenceAudio: HTMLAudioElement | null = null
+
+const requestWakeLock = async () => {
+  if ('wakeLock' in navigator) {
+    try {
+      wakeLock = await (navigator as any).wakeLock.request('screen')
+      console.log('Wake Lock 활성화')
+    } catch (err: any) {
+      console.error(`${err.name}, ${err.message}`)
+    }
+  }
+}
+
+const releaseWakeLock = () => {
+  if (wakeLock) {
+    wakeLock.release().then(() => {
+      wakeLock = null
+      console.log('Wake Lock 해제')
+    })
+  }
+}
+
+const startSilenceLoop = () => {
+  // 1초 무음 오디오 (Base64) - 브라우저가 배경에서 정지되는 것을 방지
+  const silenceSrc = 'data:audio/wav;base64,UklGRigAAABXQVZFRm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='
+  if (!silenceAudio) {
+    silenceAudio = new Audio(silenceSrc)
+    silenceAudio.loop = true
+  }
+  silenceAudio.play().catch(e => console.warn('Silence audio play failed:', e))
+}
+
+const stopSilenceLoop = () => {
+  if (silenceAudio) {
+    silenceAudio.pause()
+    silenceAudio.currentTime = 0
+  }
+}
+
 // 화자 인덱스 (0~4) → 색상 클래스
 const speakerMap = ref<Record<string, number>>({})
 const getSpeakerIndex = (speaker: string): number => {
@@ -359,16 +400,34 @@ const startRecording = async (): Promise<void> => {
   try {
     errorMessage.value = ''
     showPermissionInfo.value = false
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    
+    // 오디오 품질 향상을 위한 설정
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        sampleRate: 44100
+      } 
+    })
+    
     mediaRecorder = new MediaRecorder(stream)
     audioChunks = []
-    mediaRecorder.ondataavailable = (event: BlobEvent) => { audioChunks.push(event.data) }
+    
+    mediaRecorder.ondataavailable = (event: BlobEvent) => { 
+      if (event.data.size > 0) audioChunks.push(event.data) 
+    }
+    
     mediaRecorder.onstop = async () => {
       const audioBlob = new Blob(audioChunks, { type: 'audio/wav' })
       recordedAudioBlob.value = audioBlob
       await processAudio(audioBlob)
     }
-    mediaRecorder.start()
+    
+    await requestWakeLock()
+    startSilenceLoop()
+    
+    mediaRecorder.start(1000) // 1초마다 데이터 캡처 (안정성 향상)
     isRecording.value = true
     recordingTime.value = 0
     recordingInterval = window.setInterval(() => { recordingTime.value++ }, 1000)
@@ -387,6 +446,10 @@ const stopRecording = (): void => {
     mediaRecorder.stop()
     mediaRecorder.stream.getTracks().forEach(track => track.stop())
     isRecording.value = false
+    
+    releaseWakeLock()
+    stopSilenceLoop()
+    
     if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
   }
 }
