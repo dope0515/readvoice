@@ -30,7 +30,7 @@
         <span class="upload-dropzone__text"> 드래그 앤 드롭</span>
       </div>
       <p v-if="!isConverting && !isSummarizing" class="upload-dropzone__hint">
-        WAV, MP3, M4A, FLAC, OGG 파일 지원
+        WAV, MP3, M4A, FLAC, OGG 파일 지원 (최대 25MB)
       </p>
     </div>
 
@@ -279,6 +279,7 @@ const ALLOWED_MIME_TYPES = [
   'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/mpeg', 'audio/mp3',
   'audio/mp4', 'audio/x-m4a', 'audio/flac', 'audio/ogg', 'audio/vorbis'
 ]
+const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB limit
 
 const isDragging = ref(false)
 const selectedFile = ref<File | null>(null)
@@ -360,12 +361,15 @@ const handleDrop = (e: DragEvent) => {
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
     const file = files[0]
-    if (isValidAudioFile(file)) {
-      selectedFile.value = file
-      errorMessage.value = ''
-    } else {
+    if (!isValidAudioFile(file)) {
       errorMessage.value = '지원하지 않는 파일 형식입니다. WAV, MP3, M4A, FLAC, OGG 파일만 업로드 가능합니다.'
       selectedFile.value = null
+    } else if (file.size > MAX_FILE_SIZE) {
+      errorMessage.value = '파일 크기는 25MB를 초과할 수 없습니다.'
+      selectedFile.value = null
+    } else {
+      selectedFile.value = file
+      errorMessage.value = ''
     }
   }
 }
@@ -375,12 +379,15 @@ const handleFileSelect = (e: Event) => {
   const files = target.files
   if (files && files.length > 0) {
     const file = files[0]
-    if (isValidAudioFile(file)) {
-      selectedFile.value = file
-      errorMessage.value = ''
-    } else {
+    if (!isValidAudioFile(file)) {
       errorMessage.value = '지원하지 않는 파일 형식입니다. WAV, MP3, M4A, FLAC, OGG 파일만 업로드 가능합니다.'
       selectedFile.value = null
+    } else if (file.size > MAX_FILE_SIZE) {
+      errorMessage.value = '파일 크기는 25MB를 초과할 수 없습니다.'
+      selectedFile.value = null
+    } else {
+      selectedFile.value = file
+      errorMessage.value = ''
     }
     target.value = ''
   }
