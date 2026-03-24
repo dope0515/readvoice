@@ -66,11 +66,37 @@ export default defineNuxtConfig({
 
   app: {
     head: {
+      title: '읽어줄래요',
+      htmlAttrs: {
+        lang: 'ko'
+      },
       meta: [
+        { charset: 'utf-8' },
         { name: 'theme-color', content: '#ffffff' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
-        { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover' }
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover' },
+        
+        // 기본 SEO
+        { name: 'description', content: '쉽고 빠른 음성 텍스트 변환 서비스, 읽어줄래요. 당신의 음성을 텍스트로 기록해보세요.' },
+        
+        // Open Graph (공유 시 보이는 정보)
+        { property: 'og:type', content: 'website' },
+        { property: 'og:title', content: '읽어줄래요' },
+        { property: 'og:description', content: '쉽고 빠른 음성 텍스트 변환 서비스, 읽어줄래요. 당신의 음성을 텍스트로 기록해보세요.' },
+        { property: 'og:image', content: '/pwa-512x512.png' }, // SNS 공유 시 표시될 이미지 (현재 PWA 아이콘 사용)
+        { property: 'og:site_name', content: '읽어줄래요' },
+        { property: 'og:locale', content: 'ko_KR' },
+        
+        // Twitter (X) Card
+        { name: 'twitter:card', content: 'summary' },
+        { name: 'twitter:title', content: '읽어줄래요' },
+        { name: 'twitter:description', content: '쉽고 빠른 음성 텍스트 변환 서비스, 읽어줄래요. 당신의 음성을 텍스트로 기록해보세요.' },
+        { name: 'twitter:image', content: '/pwa-512x512.png' }
+      ],
+      link: [
+        { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
+        { rel: 'apple-touch-icon', sizes: '192x192', href: '/pwa-192x192.png' }
       ]
     }
   }

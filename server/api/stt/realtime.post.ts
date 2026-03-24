@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const filename = audioField.filename || 'recording.wav'
-    const audioBlob = new Blob([new Uint8Array(audioField.data)])
+    const audioBlob = new Blob([new Uint8Array(audioField.data)], { type: audioField.type || 'audio/webm' })
     const model = modelField?.data ? new TextDecoder().decode(modelField.data) : 'whisper-large-v3'
 
     // 2. Whisper API로 음성 변환 (선택된 모델 전달)
