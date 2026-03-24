@@ -84,7 +84,7 @@ export default defineNuxtConfig({
         { property: 'og:type', content: 'website' },
         { property: 'og:title', content: '읽어줄래요' },
         { property: 'og:description', content: '쉽고 빠른 음성 텍스트 변환 서비스, 읽어줄래요. 당신의 음성을 텍스트로 기록해보세요.' },
-        { property: 'og:image', content: '/pwa-512x512.png' }, // SNS 공유 시 표시될 이미지 (현재 PWA 아이콘 사용)
+        { property: 'og:image', content: '/og_image.jpg' }, // SNS 공유 시 표시될 이미지 (현재 PWA 아이콘 사용)
         { property: 'og:site_name', content: '읽어줄래요' },
         { property: 'og:locale', content: 'ko_KR' },
         
@@ -92,7 +92,7 @@ export default defineNuxtConfig({
         { name: 'twitter:card', content: 'summary' },
         { name: 'twitter:title', content: '읽어줄래요' },
         { name: 'twitter:description', content: '쉽고 빠른 음성 텍스트 변환 서비스, 읽어줄래요. 당신의 음성을 텍스트로 기록해보세요.' },
-        { name: 'twitter:image', content: '/pwa-512x512.png' }
+        { name: 'twitter:image', content: '/og_image.jpg' }
       ],
       link: [
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
