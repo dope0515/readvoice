@@ -42,6 +42,15 @@ export async function transcribeAudio(
   } catch (error: any) {
     console.error('Groq Whisper API error:', error)
     
+    if (error.response) {
+      // ofetch 에러 (에러 응답 본문)
+      console.error('Groq API Error details:', error.response._data)
+      throw createError({
+        statusCode: error.response.status || 500,
+        message: `API Error: ${error.response._data?.error?.message || error.message}`,
+      })
+    }
+    
     if (error.statusCode === 401) {
       throw createError({
         statusCode: 401,
@@ -58,7 +67,7 @@ export async function transcribeAudio(
     
     throw createError({
       statusCode: 500,
-      message: '음성 변환에 실패했습니다.',
+      message: `음성 변환 실패: ${error.message || '알 수 없는 에러'}`,
     })
   }
 }

@@ -279,6 +279,52 @@ const attendeesInput = ref('')
 const diarizationResult = ref<DiarizationSegment[] | null>(null)
 const isExportingPdf = ref(false)
 
+// WebM/MP4 Blob을 완전한 형태의 WAV(PCM 16-bit) Blob으로 변환
+// (Groq API가 브라우저의 불완전한 WebM을 거부하는 문제 해결)
+const convertBlobToWav = async (blob: Blob): Promise<Blob> => {
+  const arrayBuffer = await blob.arrayBuffer()
+  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+  const numOfChan = audioBuffer.numberOfChannels
+  const length = audioBuffer.length * numOfChan * 2 + 44
+  const buffer = new ArrayBuffer(length)
+  const view = new DataView(buffer)
+  
+  const writeString = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i))
+    }
+  }
+
+  writeString(view, 0, 'RIFF')
+  view.setUint32(4, 36 + audioBuffer.length * numOfChan * 2, true)
+  writeString(view, 8, 'WAVE')
+  writeString(view, 12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, numOfChan, true)
+  view.setUint32(24, audioBuffer.sampleRate, true)
+  view.setUint32(28, audioBuffer.sampleRate * 2 * numOfChan, true)
+  view.setUint16(32, numOfChan * 2, true)
+  view.setUint16(34, 16, true)
+  writeString(view, 36, 'data')
+  view.setUint32(40, audioBuffer.length * numOfChan * 2, true)
+
+  let offset = 44
+  for (let i = 0; i < audioBuffer.length; i++) {
+    for (let channel = 0; channel < numOfChan; channel++) {
+      let sample = audioBuffer.getChannelData(channel)[i]
+      sample = Math.max(-1, Math.min(1, sample))
+      sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF
+      view.setInt16(offset, sample, true)
+      offset += 2
+    }
+  }
+
+  return new Blob([view], { type: 'audio/wav' })
+}
+
 // 배경 녹음 유지를 위한 Wake Lock & Silence Audio
 let wakeLock: any = null
 let silenceAudio: HTMLAudioElement | null = null
@@ -403,12 +449,25 @@ const startRecording = async (): Promise<void> => {
         if (event.data.size > 0) audioChunks.push(event.data) 
       }
       
-      mediaRecorder.onstop = () => {
+      mediaRecorder.onstop = async () => {
         if (audioChunks.length === 0) return
-        const chunkBlob = new Blob(audioChunks, { type: 'audio/webm' }) // Default behavior or mimeType
-        masterAudioBlobs.value.push(chunkBlob)
+        
+        // 브라우저에 따라 실제 저장되는 포맷 파악 (Safari는 mp4 등)
+        const mimeType = mediaRecorder!.mimeType || 'audio/webm'
+        const chunkBlob = new Blob(audioChunks, { type: mimeType })
         audioChunks = []
-        processChunk(chunkBlob)
+        
+        try {
+          // 순수 WAV 포맷으로 변환 (Groq API 400 에러 우회)
+          const wavBlob = await convertBlobToWav(chunkBlob)
+          masterAudioBlobs.value.push(wavBlob)
+          processChunk(wavBlob, 'wav')
+        } catch (e) {
+          console.error("WAV 변환 실패, 원본 전송 시도", e)
+          masterAudioBlobs.value.push(chunkBlob)
+          let fallbackExt = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
+          processChunk(chunkBlob, fallbackExt)
+        }
       }
       
       mediaRecorder.start(1000)
@@ -469,13 +528,13 @@ const stopRecording = (): void => {
   }
 }
 
-const processChunk = async (audioBlob: Blob): Promise<void> => {
+const processChunk = async (audioBlob: Blob, ext: string = 'webm'): Promise<void> => {
   activeChunkRequests.value++
   errorMessage.value = ''
   
   try {
     const formData = new FormData()
-    formData.append('audio', audioBlob, 'chunk.wav')
+    formData.append('audio', audioBlob, `chunk.${ext}`)
     formData.append('model', selectedModel.value)
     
     const response = await $fetch<APIResponse>('/api/stt/realtime', { method: 'POST', body: formData } as any)
