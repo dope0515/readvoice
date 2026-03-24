@@ -15,11 +15,11 @@
 
       <button
         @click="toggleRecording"
-        :disabled="isProcessing"
+        :disabled="activeChunkRequests > 0"
         :class="[
           'record-btn',
           isRecording ? 'record-btn--recording' : 'record-btn--idle',
-          { 'record-btn--disabled': isProcessing }
+          { 'record-btn--disabled': activeChunkRequests > 0 }
         ]"
       >
         <svg v-if="!isRecording" class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24">
@@ -42,7 +42,7 @@
     </div>
 
     <!-- 실시간 텍스트 결과 -->
-    <div v-if="transcriptionText || isProcessing" class="result-box">
+    <div v-if="transcriptionText || activeChunkRequests > 0" class="result-box">
       <h3 class="result-box__title">
         <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
@@ -52,7 +52,7 @@
       </h3>
       
       <div class="result-box__content">
-        <div v-if="isProcessing" class="loading-dots">
+        <div v-if="activeChunkRequests > 0 && !transcriptionText" class="loading-dots">
           <div class="loading-dots__dot loading-dots__dot--1"></div>
           <div class="loading-dots__dot loading-dots__dot--2"></div>
           <div class="loading-dots__dot loading-dots__dot--3"></div>
@@ -84,7 +84,7 @@
       <div v-if="transcriptionText" class="result-box__actions">
         <button @click="clearTranscription" class="btn-clear">초기화</button>
         <div class="result-box__main-actions">
-          <button v-if="recordedAudioBlob" @click="downloadAudio" class="btn-secondary">오디오 다운로드</button>
+          <button v-if="masterAudioBlobs.length > 0" @click="downloadAudio" class="btn-secondary">오디오 다운로드</button>
           <button @click="copyToClipboard" class="btn-secondary">복사</button>
           <!-- 텍스트 정리 버튼 -->
           <button
@@ -272,7 +272,8 @@ const isSummarizing = ref(false)
 const summaryResult = ref('')
 const summaryError = ref('')
 const selectedModel = ref('whisper-large-v3')
-const recordedAudioBlob = ref<Blob | null>(null)
+const masterAudioBlobs = ref<Blob[]>([])
+const activeChunkRequests = ref(0)
 const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 const attendeesInput = ref('')
 const diarizationResult = ref<DiarizationSegment[] | null>(null)
@@ -365,11 +366,12 @@ const formattedSummaryResult = computed(() => {
 
 let mediaRecorder: MediaRecorder | null = null
 let recordingInterval: number | null = null
+let chunkInterval: number | null = null
 let audioChunks: Blob[] = []
 
 const currentStatus = computed(() => {
   if (isSummarizing.value) return 'summarizing'
-  if (isProcessing.value) return 'converting'
+  if (activeChunkRequests.value > 0) return 'converting'
   if (isRecording.value) return 'recording'
   if (transcriptionText.value && summaryResult.value) return 'finished'
   return 'idle'
@@ -390,8 +392,30 @@ const startRecording = async (): Promise<void> => {
     errorMessage.value = ''
     showPermissionInfo.value = false
     
-    // 오디오 품질 향상을 위한 설정
-    const stream = await navigator.mediaDevices.getUserMedia({ 
+    let streamRef: MediaStream | null = null
+    
+    const startSegment = () => {
+      // Create fresh recorder to ensure headers are intact for the chunk
+      mediaRecorder = new MediaRecorder(streamRef!)
+      audioChunks = []
+      
+      mediaRecorder.ondataavailable = (event: BlobEvent) => { 
+        if (event.data.size > 0) audioChunks.push(event.data) 
+      }
+      
+      mediaRecorder.onstop = () => {
+        if (audioChunks.length === 0) return
+        const chunkBlob = new Blob(audioChunks, { type: 'audio/webm' }) // Default behavior or mimeType
+        masterAudioBlobs.value.push(chunkBlob)
+        audioChunks = []
+        processChunk(chunkBlob)
+      }
+      
+      mediaRecorder.start(1000)
+    }
+
+    // Capture initial stream
+    streamRef = await navigator.mediaDevices.getUserMedia({ 
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -400,26 +424,25 @@ const startRecording = async (): Promise<void> => {
       } 
     })
     
-    mediaRecorder = new MediaRecorder(stream)
-    audioChunks = []
-    
-    mediaRecorder.ondataavailable = (event: BlobEvent) => { 
-      if (event.data.size > 0) audioChunks.push(event.data) 
-    }
-    
-    mediaRecorder.onstop = async () => {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/wav' })
-      recordedAudioBlob.value = audioBlob
-      await processAudio(audioBlob)
-    }
+    // Reset state
+    masterAudioBlobs.value = []
     
     await requestWakeLock()
     startSilenceLoop()
     
-    mediaRecorder.start(1000) // 1초마다 데이터 캡처 (안정성 향상)
+    startSegment()
+    
     isRecording.value = true
     recordingTime.value = 0
     recordingInterval = window.setInterval(() => { recordingTime.value++ }, 1000)
+    
+    // Chunking interval
+    chunkInterval = window.setInterval(() => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop()
+        startSegment() // Start following chunk
+      }
+    }, 30000) // 30 seconds interval
   } catch (error: any) {
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
       showPermissionInfo.value = true
@@ -431,35 +454,43 @@ const startRecording = async (): Promise<void> => {
 }
 
 const stopRecording = (): void => {
+  if (chunkInterval) { window.clearInterval(chunkInterval); chunkInterval = null }
+  
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop()
+    // Stop all media tracks
     mediaRecorder.stream.getTracks().forEach(track => track.stop())
     isRecording.value = false
     
     releaseWakeLock()
     stopSilenceLoop()
     
-    if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
+    if (recordingInterval) { window.clearInterval(recordingInterval); recordingInterval = null }
   }
 }
 
-const processAudio = async (audioBlob: Blob): Promise<void> => {
-  isProcessing.value = true
+const processChunk = async (audioBlob: Blob): Promise<void> => {
+  activeChunkRequests.value++
   errorMessage.value = ''
+  
   try {
     const formData = new FormData()
-    formData.append('audio', audioBlob, 'recording.wav')
+    formData.append('audio', audioBlob, 'chunk.wav')
     formData.append('model', selectedModel.value)
+    
     const response = await $fetch<APIResponse>('/api/stt/realtime', { method: 'POST', body: formData } as any)
+    
     if (response.success && response.text) {
-      transcriptionText.value = response.text
-    } else {
-      throw new Error('변환 결과를 받지 못했습니다.')
+      if (transcriptionText.value) {
+        transcriptionText.value += '\n\n' + response.text.trim()
+      } else {
+        transcriptionText.value = response.text.trim()
+      }
     }
   } catch (error: any) {
     errorMessage.value = error.data?.message || error.message || '음성 처리 중 오류가 발생했습니다.'
   } finally {
-    isProcessing.value = false
+    activeChunkRequests.value--
   }
 }
 
@@ -468,7 +499,7 @@ const clearTranscription = (): void => {
   recordingTime.value = 0
   summaryResult.value = ''
   summaryError.value = ''
-  recordedAudioBlob.value = null
+  masterAudioBlobs.value = []
   diarizationResult.value = null
   speakerMap.value = {}
 }
@@ -563,11 +594,13 @@ const summarizeText = async (mode: 'summary' | 'meeting_minutes' = 'summary'): P
 }
 
 const downloadAudio = () => {
-  if (!recordedAudioBlob.value) return
-  const url = URL.createObjectURL(recordedAudioBlob.value)
+  if (masterAudioBlobs.value.length === 0) return
+  // Concatenate all tracked chunk blobs
+  const finalBlob = new Blob(masterAudioBlobs.value, { type: 'audio/webm' })
+  const url = URL.createObjectURL(finalBlob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `녹음음성_${new Date().getTime()}.wav`
+  a.download = `녹음음성_${new Date().getTime()}.wav` // .wav extension used globally although internally webm/wav browser dependent
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -696,6 +729,7 @@ const sendEmail = () => {
 onUnmounted(() => {
   if (isRecording.value) { stopRecording() }
   if (recordingInterval) { clearInterval(recordingInterval) }
+  if (chunkInterval) { clearInterval(chunkInterval) }
 })
 </script>
 
