@@ -10,7 +10,7 @@
         { 'upload-dropzone--dragging': isDragging }
       ]"
     >
-      <StatusAnimation :status="currentStatus" />
+      <StatusAnimation :status="currentStatus" mode="file" />
       
       <div class="upload-dropzone__input-wrapper" v-if="!isConverting && !isSummarizing">
         <label
@@ -772,8 +772,8 @@ const sendEmail = () => {
 
   &__content { display: flex; align-items: center; justify-content: space-between; }
   &__details { display: flex; align-items: center; gap: 12px; }
-  &__icon { height: 28px; width: 28px; color: #1a73e8; }
-  &__name { font-size: 14px; font-weight: 500; color: #202124; margin: 0; }
+  &__icon { height: 28px; width: 28px; color: #1a73e8; flex-shrink: 0;}
+  &__name { font-size: 14px; font-weight: 500; color: #202124; margin: 0; text-overflow: ellipsis; -webkit-line-clamp: 1; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;}
   &__size { font-size: 12px; color: #5f6368; margin: 0; }
   &__remove { color: #ea4335; background: none; border: none; cursor: pointer; border-radius: 50%; padding: 4px; transition: background-color 0.15s ease; &:hover { background-color: #fce8e6; } }
   &__remove-icon { height: 18px; width: 18px; display: block; }

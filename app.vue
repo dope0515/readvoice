@@ -1,5 +1,6 @@
 <template>
   <div class="app-layout">
+    <VitePwaManifest />
     <!-- Google-style 헤더 -->
     <header class="app-header">
       <div class="app-header__container">
@@ -57,6 +58,9 @@ const changeTab = (tabId: string) => { activeTab.value = tabId }
   background-color: #f8f9fa;
   display: flex;
   flex-direction: column;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* ── Google-style Header ── */
@@ -136,6 +140,11 @@ const changeTab = (tabId: string) => { activeTab.value = tabId }
     border: 1px solid #e8eaed;
     box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
     padding: 32px 28px;
+  }
+
+  &__content {
+    user-select: text;
+    -webkit-user-select: text;
   }
 }
 

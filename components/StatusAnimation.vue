@@ -19,36 +19,53 @@
 import { computed } from 'vue'
 
 interface Props {
-  status: 'idle' | 'converting' | 'summarizing' | 'finished'
+  status: 'idle' | 'recording' | 'converting' | 'summarizing' | 'finished',
+  mode?: 'file' | 'realtime'
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  mode: 'file'
+})
 
 const statusImages = {
   idle: '/images/ic_listening.png',
+  recording: '/images/ic_speaking.png',
   converting: '/images/ic_analyzing.png',
   summarizing: '/images/ic_summarize.png',
   finished: '/images/ic_finished.png'
 }
 
-const statusTexts = {
-  idle: '파일을 업로드해주세요',
-  converting: '음성을 텍스트로 변환하는 중...',
-  summarizing: 'AI가 요약하는 중...',
-  finished: '완료!'
-}
+const statusTexts = computed(() => {
+  if (props.mode === 'realtime') {
+    return {
+      idle: '기록을 시작하려면 클릭하세요',
+      recording: '말씀 중...',
+      converting: '음성 인식 중...',
+      summarizing: 'AI가 요약 중...',
+      finished: '변환 완료!'
+    }[props.status]
+  }
+  return {
+    idle: '대기 중',
+    recording: '변환 중...', // fallback
+    converting: '음성 인식 중...',
+    summarizing: 'AI가 요약 중...',
+    finished: '완료!'
+  }[props.status]
+})
 
 const animationClasses = {
   idle: '',
+  recording: 'icon-pulse',
   converting: 'icon-bounce',
   summarizing: 'icon-pulse',
   finished: 'icon-bounce-scale'
 }
 
 const currentImage = computed(() => statusImages[props.status])
-const statusText = computed(() => statusTexts[props.status])
+const statusText = computed(() => statusTexts.value)
 const animationClass = computed(() => animationClasses[props.status])
-const isLoading = computed(() => props.status === 'converting' || props.status === 'summarizing')
+const isLoading = computed(() => ['recording', 'converting', 'summarizing'].includes(props.status))
 </script>
 
 <style lang="scss" scoped>
