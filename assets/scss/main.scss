@@ -9,6 +9,7 @@ html, body {
   color: #202124;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none; /* Prevent pull-to-refresh to feel like native app */
 }
 
 *, *::before, *::after {

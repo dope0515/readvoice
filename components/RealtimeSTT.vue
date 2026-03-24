@@ -1,15 +1,7 @@
 <template>
   <div class="realtime-stt">
     <!-- 녹음 상태 표시 -->
-    <div class="status-indicator">
-      <div class="status-indicator__badge" :class="statusBadgeClass">
-        <span class="status-indicator__icon-wrapper">
-          <span v-if="isRecording" class="status-indicator__ping"></span>
-          <span class="status-indicator__dot" :class="{ 'status-indicator__dot--active': isRecording }"></span>
-        </span>
-        {{ statusText }}
-      </div>
-    </div>
+    <StatusAnimation :status="currentStatus" mode="realtime" />
 
     <!-- 녹음 컨트롤 -->
     <div class="record-control">
@@ -258,6 +250,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
+import StatusAnimation from './StatusAnimation.vue'
 
 interface APIResponse {
   success: boolean
@@ -374,16 +367,12 @@ let mediaRecorder: MediaRecorder | null = null
 let recordingInterval: number | null = null
 let audioChunks: Blob[] = []
 
-const statusText = computed(() => {
-  if (isProcessing.value) return '처리 중'
-  if (isRecording.value) return '녹음 중'
-  return '대기'
-})
-
-const statusBadgeClass = computed(() => {
-  if (isProcessing.value) return 'status-indicator__badge--processing'
-  if (isRecording.value) return 'status-indicator__badge--recording'
-  return 'status-indicator__badge--idle'
+const currentStatus = computed(() => {
+  if (isSummarizing.value) return 'summarizing'
+  if (isProcessing.value) return 'converting'
+  if (isRecording.value) return 'recording'
+  if (transcriptionText.value && summaryResult.value) return 'finished'
+  return 'idle'
 })
 
 const formatTime = (seconds: number): string => {
@@ -718,24 +707,7 @@ onUnmounted(() => {
   gap: 20px;
 }
 
-.status-indicator {
-  text-align: center;
-  &__badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 6px 16px;
-    border-radius: 16px;
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.25px;
-    &--processing { background-color: #fef7e0; color: #e37400; }
-    &--recording { background-color: #fce8e6; color: #c5221f; }
-    &--idle { background-color: #f1f3f4; color: #202124; }
-  }
-  &__icon-wrapper { position: relative; display: flex; height: 10px; width: 10px; margin-right: 8px; }
-  &__ping { position: absolute; display: inline-flex; height: 100%; width: 100%; border-radius: 9999px; background-color: #EA4335; opacity: 0.75; animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
-  &__dot { position: relative; display: inline-flex; border-radius: 9999px; height: 10px; width: 10px; background-color: #80868b; &--active { background-color: #EA4335; } }
-}
+
 
 .record-control {
   display: flex;
