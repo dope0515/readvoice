@@ -31,3 +31,32 @@ h1, h2, h3, h4, h5, h6 {
 p {
   margin: 0;
 }
+
+/* Print mode (PDF export) - ONLY SHOW MEETING MINUTES */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .meeting-table-wrapper, .meeting-table-wrapper * {
+    visibility: visible;
+  }
+  .meeting-table-wrapper {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 20px;
+    border: none;
+    box-shadow: none;
+  }
+  /* Force background colors in print (Chrome, Safari, Edge) */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* Remove page margins/headers/footers */
+  @page {
+    margin: 15mm;
+  }
+}

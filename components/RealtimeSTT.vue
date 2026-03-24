@@ -15,11 +15,11 @@
 
       <button
         @click="toggleRecording"
-        :disabled="activeChunkRequests > 0"
+        :disabled="isConverting"
         :class="[
           'record-btn',
           isRecording ? 'record-btn--recording' : 'record-btn--idle',
-          { 'record-btn--disabled': activeChunkRequests > 0 }
+          { 'record-btn--disabled': isConverting }
         ]"
       >
         <svg v-if="!isRecording" class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24">
@@ -41,18 +41,25 @@
       <p class="record-timer__text">{{ formatTime(recordingTime) }}</p>
     </div>
 
-    <!-- 실시간 텍스트 결과 -->
-    <div v-if="transcriptionText || activeChunkRequests > 0" class="result-box">
+    <!-- 록음 종료 후 변환 중 상태 -->
+    <div v-if="isConverting" class="record-timer">
+      <p class="record-timer__text">
+        {{ totalChunks > 1 ? `변환 중... (${processedChunks}/${totalChunks})` : '변환 중...' }}
+      </p>
+    </div>
+
+    <!-- 텍스트 결과 -->
+    <div v-if="transcriptionText || isConverting" class="result-box">
       <h3 class="result-box__title">
         <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
-        실시간 변환 결과
+        녕음 변환 결과
       </h3>
       
       <div class="result-box__content">
-        <div v-if="activeChunkRequests > 0 && !transcriptionText" class="loading-dots">
+        <div v-if="isConverting && !transcriptionText" class="loading-dots">
           <div class="loading-dots__dot loading-dots__dot--1"></div>
           <div class="loading-dots__dot loading-dots__dot--2"></div>
           <div class="loading-dots__dot loading-dots__dot--3"></div>
@@ -273,11 +280,13 @@ const summaryResult = ref('')
 const summaryError = ref('')
 const selectedModel = ref('whisper-large-v3')
 const masterAudioBlobs = ref<Blob[]>([])
-const activeChunkRequests = ref(0)
+const isConverting = ref(false)
 const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 const attendeesInput = ref('')
 const diarizationResult = ref<DiarizationSegment[] | null>(null)
 const isExportingPdf = ref(false)
+const totalChunks = ref(0)
+const processedChunks = ref(0)
 
 // WebM/MP4 Blob을 완전한 형태의 WAV(PCM 16-bit) Blob으로 변환
 // (Groq API가 브라우저의 불완전한 WebM을 거부하는 문제 해결)
@@ -412,12 +421,97 @@ const formattedSummaryResult = computed(() => {
 
 let mediaRecorder: MediaRecorder | null = null
 let recordingInterval: number | null = null
-let chunkInterval: number | null = null
-let audioChunks: Blob[] = []
+
+// \ub2e4\uc6b4\uc0d8\ud50c\ub9c1 & WAV \uc778\ucf54\ub529 \uc720\ud2f8\ub9ac\ud2f0
+const downsampleBuffer = (buffer: any, originalRate: number, targetRate: number) => {
+  if (targetRate === originalRate) return buffer
+  const ratio = originalRate / targetRate
+  const newLength = Math.round(buffer.length / ratio)
+  const result = new Float32Array(newLength)
+  let outOffset = 0, inOffset = 0
+  while (outOffset < result.length) {
+    const nextIn = Math.round((outOffset + 1) * ratio)
+    let accum = 0, count = 0
+    for (let i = inOffset; i < nextIn && i < buffer.length; i++) { accum += buffer[i]; count++ }
+    result[outOffset] = accum / count
+    outOffset++
+    inOffset = nextIn
+  }
+  return result
+}
+
+const encodeFloat32ToWavBlob = (samples: any, sampleRate: number): Blob => {
+  const buffer = new ArrayBuffer(44 + samples.length * 2)
+  const view = new DataView(buffer)
+  const w = (v: DataView, o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)) }
+  w(view, 0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); w(view, 8, 'WAVE'); w(view, 12, 'fmt ')
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
+  w(view, 36, 'data'); view.setUint32(40, samples.length * 2, true)
+  let offset = 44
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]))
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
+  }
+  return new Blob([view], { type: 'audio/wav' })
+}
+
+// \ub179\uc74c \uc644\ub8cc \ud6c4 \ubcc0\ud658 \ud30c\uc774\ud504\ub77c\uc778 (FileUploadSTT\uc640 \ub3d9\uc77c\ud55c \ub85c\uc9c1)
+const transcribeRecordedAudio = async (fullBlob: Blob) => {
+  isConverting.value = true
+  errorMessage.value = ''
+  transcriptionText.value = ''
+  totalChunks.value = 0
+  processedChunks.value = 0
+
+  try {
+    const arrayBuffer = await fullBlob.arrayBuffer()
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+
+    const TARGET_SAMPLE_RATE = 16000
+    let channelData = audioBuffer.getChannelData(0)
+    if (audioBuffer.sampleRate !== TARGET_SAMPLE_RATE) {
+      channelData = downsampleBuffer(channelData, audioBuffer.sampleRate, TARGET_SAMPLE_RATE)
+    }
+
+    const CHUNK_DURATION_SEC = 60
+    const samplesPerChunk = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC
+    const chunks: any[] = []
+    for (let i = 0; i < channelData.length; i += samplesPerChunk) {
+      chunks.push(channelData.slice(i, Math.min(i + samplesPerChunk, channelData.length)))
+    }
+
+    totalChunks.value = chunks.length
+    let fullTranscription = ''
+
+    for (let i = 0; i < chunks.length; i++) {
+      const wavBlob = encodeFloat32ToWavBlob(chunks[i], TARGET_SAMPLE_RATE)
+      const formData = new FormData()
+      formData.append('file', wavBlob, `chunk_${i}.wav`)
+      formData.append('model', selectedModel.value)
+      const response = await $fetch<APIResponse>('/api/stt/upload', { method: 'POST', body: formData } as any)
+      if (response.success && response.text) {
+        fullTranscription += (fullTranscription ? '\n\n' : '') + response.text.trim()
+      }
+      processedChunks.value = i + 1
+    }
+
+    transcriptionText.value = fullTranscription
+  } catch (error: any) {
+    console.error('Transcription error:', error)
+    errorMessage.value = error.data?.message || error.message || '\ubcc0\ud658 \uc911 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.'
+  } finally {
+    isConverting.value = false
+  }
+}
+
+// \ub0b4\ubd80 \ud638\ud658\uc131\uc744 \uc704\ud55c computed
+const activeChunkRequests = computed(() => isConverting.value ? 1 : 0)
 
 const currentStatus = computed(() => {
   if (isSummarizing.value) return 'summarizing'
-  if (activeChunkRequests.value > 0) return 'converting'
+  if (isConverting.value) return 'converting'
   if (isRecording.value) return 'recording'
   if (transcriptionText.value && summaryResult.value) return 'finished'
   return 'idle'
@@ -437,71 +531,46 @@ const startRecording = async (): Promise<void> => {
   try {
     errorMessage.value = ''
     showPermissionInfo.value = false
-    
-    let streamRef: MediaStream | null = null
-    
-    const startSegment = () => {
-      // Create fresh recorder to ensure headers are intact for the chunk
-      mediaRecorder = new MediaRecorder(streamRef!)
-      audioChunks = []
-      
-      mediaRecorder.ondataavailable = (event: BlobEvent) => { 
-        if (event.data.size > 0) audioChunks.push(event.data) 
-      }
-      
-      mediaRecorder.onstop = async () => {
-        if (audioChunks.length === 0) return
-        
-        // 브라우저에 따라 실제 저장되는 포맷 파악 (Safari는 mp4 등)
-        const mimeType = mediaRecorder!.mimeType || 'audio/webm'
-        const chunkBlob = new Blob(audioChunks, { type: mimeType })
-        audioChunks = []
-        
-        try {
-          // 순수 WAV 포맷으로 변환 (Groq API 400 에러 우회)
-          const wavBlob = await convertBlobToWav(chunkBlob)
-          masterAudioBlobs.value.push(wavBlob)
-          processChunk(wavBlob, 'wav')
-        } catch (e) {
-          console.error("WAV 변환 실패, 원본 전송 시도", e)
-          masterAudioBlobs.value.push(chunkBlob)
-          let fallbackExt = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
-          processChunk(chunkBlob, fallbackExt)
-        }
-      }
-      
-      mediaRecorder.start(1000)
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 44100 }
+    })
+
+    masterAudioBlobs.value = []
+    transcriptionText.value = ''
+    let allChunks: Blob[] = []
+
+    mediaRecorder = new MediaRecorder(stream)
+    mediaRecorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data.size > 0) allChunks.push(event.data)
+    }
+    mediaRecorder.onstop = async () => {
+      // 분리된 트랙 정지
+      stream.getTracks().forEach(track => track.stop())
+      releaseWakeLock()
+      stopSilenceLoop()
+      if (recordingInterval) { window.clearInterval(recordingInterval); recordingInterval = null }
+      isRecording.value = false
+
+      if (allChunks.length === 0) return
+
+      // 전체 노음을 하나의 Blob으로 합치기
+      const mimeType = mediaRecorder!.mimeType || 'audio/webm'
+      const fullBlob = new Blob(allChunks, { type: mimeType })
+      masterAudioBlobs.value = [fullBlob]
+
+      // 녹음 완료 후 변환 시작
+      await transcribeRecordedAudio(fullBlob)
     }
 
-    // Capture initial stream
-    streamRef = await navigator.mediaDevices.getUserMedia({ 
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: 44100
-      } 
-    })
-    
-    // Reset state
-    masterAudioBlobs.value = []
-    
     await requestWakeLock()
     startSilenceLoop()
-    
-    startSegment()
-    
+
+    mediaRecorder.start(1000)
     isRecording.value = true
     recordingTime.value = 0
     recordingInterval = window.setInterval(() => { recordingTime.value++ }, 1000)
-    
-    // Chunking interval
-    chunkInterval = window.setInterval(() => {
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop()
-        startSegment() // Start following chunk
-      }
-    }, 30000) // 30 seconds interval
+
   } catch (error: any) {
     if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
       showPermissionInfo.value = true
@@ -513,43 +582,8 @@ const startRecording = async (): Promise<void> => {
 }
 
 const stopRecording = (): void => {
-  if (chunkInterval) { window.clearInterval(chunkInterval); chunkInterval = null }
-  
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop()
-    // Stop all media tracks
-    mediaRecorder.stream.getTracks().forEach(track => track.stop())
-    isRecording.value = false
-    
-    releaseWakeLock()
-    stopSilenceLoop()
-    
-    if (recordingInterval) { window.clearInterval(recordingInterval); recordingInterval = null }
-  }
-}
-
-const processChunk = async (audioBlob: Blob, ext: string = 'webm'): Promise<void> => {
-  activeChunkRequests.value++
-  errorMessage.value = ''
-  
-  try {
-    const formData = new FormData()
-    formData.append('audio', audioBlob, `chunk.${ext}`)
-    formData.append('model', selectedModel.value)
-    
-    const response = await $fetch<APIResponse>('/api/stt/realtime', { method: 'POST', body: formData } as any)
-    
-    if (response.success && response.text) {
-      if (transcriptionText.value) {
-        transcriptionText.value += '\n\n' + response.text.trim()
-      } else {
-        transcriptionText.value = response.text.trim()
-      }
-    }
-  } catch (error: any) {
-    errorMessage.value = error.data?.message || error.message || '음성 처리 중 오류가 발생했습니다.'
-  } finally {
-    activeChunkRequests.value--
+    mediaRecorder.stop() // onstop에서 모든 후처리
   }
 }
 
@@ -679,116 +713,105 @@ const downloadSummary = () => {
   URL.revokeObjectURL(url)
 }
 
-// PDF 직접 저장 (html2canvas + jsPDF)
-const exportToPdf = async () => {
+// PDF 저장 — 브라우저 네이티브 인쇄(벡터 기반, 화질 100%)
+const exportToPdf = () => {
   if (!parsedMeetingMinutes.value) return
-  isExportingPdf.value = true
-  try {
-    const [html2canvasModule, jsPDFModule] = await Promise.all([
-      import('html2canvas'),
-      import('jspdf')
-    ])
-    const html2canvas = html2canvasModule.default
-    const { jsPDF } = jsPDFModule
-
-    const element = document.getElementById('meeting-minutes-area-realtime')
-    if (!element) throw new Error('회의록 영역을 찾을 수 없습니다.')
-
-    const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false })
-    const imgData = canvas.toDataURL('image/png')
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 15
-    const imgWidth = pageWidth - margin * 2
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
-
-    let heightLeft = imgHeight
-    let position = margin
-    pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight)
-    heightLeft -= (pageHeight - margin * 2)
-
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight + margin
-      pdf.addPage()
-      pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight)
-      heightLeft -= (pageHeight - margin * 2)
-    }
-
-    pdf.save(`회의록_${new Date().getTime()}.pdf`)
-  } catch (error: any) {
-    summaryError.value = 'PDF 저장에 실패했습니다: ' + (error.message || '')
-  } finally {
-    isExportingPdf.value = false
-  }
+  window.print()
 }
 
-// XLSX 저장 — 스타일드 디자인 템플릿 (SheetJS)
-const exportToExcel = async () => {
+// Excel 저장 — HTML table → XLS (서식 100% 유지)
+const exportToExcel = () => {
   if (!parsedMeetingMinutes.value) return
-  const data = parsedMeetingMinutes.value
-  try {
-    const XLSX = await import('xlsx')
+  const d = parsedMeetingMinutes.value
 
-    const headerStyle = {
-      font: { bold: true, sz: 13, color: { rgb: 'FFFFFF' } },
-      fill: { fgColor: { rgb: '1a73e8' } },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: { top: { style: 'thin', color: { rgb: 'BBBBBB' } }, bottom: { style: 'thin', color: { rgb: 'BBBBBB' } }, left: { style: 'thin', color: { rgb: 'BBBBBB' } }, right: { style: 'thin', color: { rgb: 'BBBBBB' } } }
-    }
-    const thStyle = {
-      font: { bold: true, sz: 11, color: { rgb: '202124' } },
-      fill: { fgColor: { rgb: 'E8F0FE' } },
-      alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
-      border: { top: { style: 'thin', color: { rgb: 'C5C5C5' } }, bottom: { style: 'thin', color: { rgb: 'C5C5C5' } }, left: { style: 'thin', color: { rgb: 'C5C5C5' } }, right: { style: 'thin', color: { rgb: 'C5C5C5' } } }
-    }
-    const tdStyle = {
-      font: { sz: 11, color: { rgb: '202124' } },
-      fill: { fgColor: { rgb: 'FFFFFF' } },
-      alignment: { horizontal: 'left', vertical: 'top', wrapText: true },
-      border: { top: { style: 'thin', color: { rgb: 'E0E0E0' } }, bottom: { style: 'thin', color: { rgb: 'E0E0E0' } }, left: { style: 'thin', color: { rgb: 'E0E0E0' } }, right: { style: 'thin', color: { rgb: 'E0E0E0' } } }
-    }
-    const actionStyle = { ...tdStyle, fill: { fgColor: { rgb: 'FFF8E1' } }, font: { sz: 11, color: { rgb: '5F4C00' } } }
+  const rows = [
+    { th: '회의 주제', td: d.topic || '' },
+    { th: '회의 일시', td: d.date || '' },
+    { th: '참석자', td: d.attendees || '' },
+    { th: '주요 논의 사항', td: (d.discussions || []).map((s: string) => `• ${s}`).join('\n') },
+    { th: '결정 사항', td: (d.decisions || []).map((s: string) => `• ${s}`).join('\n') },
+    { th: '추후 진행 사항', td: (d.actionItems || []).map((s: string) => `• ${s}`).join('\n') },
+  ]
 
-    const rows = [
-      [{ v: '회의록', t: 's', s: headerStyle }, { v: '', t: 's', s: headerStyle }],
-      [{ v: '회의 주제', t: 's', s: thStyle }, { v: data.topic || '', t: 's', s: tdStyle }],
-      [{ v: '회의 일시', t: 's', s: thStyle }, { v: data.date || '', t: 's', s: tdStyle }],
-      [{ v: '참석자',   t: 's', s: thStyle }, { v: data.attendees || '', t: 's', s: tdStyle }],
-      [{ v: '주요 논의 사항', t: 's', s: thStyle }, { v: (data.discussions || []).map((d: string) => `• ${d}`).join('\n'), t: 's', s: tdStyle }],
-      [{ v: '결정 사항', t: 's', s: thStyle }, { v: (data.decisions || []).map((d: string) => `• ${d}`).join('\n'), t: 's', s: tdStyle }],
-      [{ v: '추후 진행 사항', t: 's', s: thStyle }, { v: (data.actionItems || []).map((d: string) => `• ${d}`).join('\n'), t: 's', s: actionStyle }],
-    ]
+  const cellStyle = `font-family:Malgun Gothic,Apple SD Gothic Neo,sans-serif;font-size:11pt;vertical-align:top;white-space:pre-wrap;border:1px solid #e0e0e0;padding:8px 12px;`
+  const thStyle = `${cellStyle}background:#E8F0FE;font-weight:bold;color:#202124;width:130px;border-color:#c5c5c5;`
+  const tdStyle = `${cellStyle}background:#ffffff;color:#202124;`
+  const actionTdStyle = `${cellStyle}background:#FFF8E1;color:#5F4C00;`
+  const headerStyle = `font-family:Malgun Gothic,Apple SD Gothic Neo,sans-serif;font-size:14pt;font-weight:bold;background:#1a73e8;color:#ffffff;text-align:center;padding:12px;border:1px solid #1a73e8;`
 
-    const ws = XLSX.utils.aoa_to_sheet(rows)
-    ws['!cols'] = [{ wch: 18 }, { wch: 65 }]
-    ws['!rows'] = [{ hpt: 32 }, { hpt: 22 }, { hpt: 22 }, { hpt: 22 }, { hpt: 80 }, { hpt: 60 }, { hpt: 60 }]
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }]
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>회의록</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>
+    <body>
+      <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+        <tr><td colspan="2" style="${headerStyle}">회의록</td></tr>
+        ${rows.map((row, i) => `<tr>
+          <td style="${thStyle}">${row.th}</td>
+          <td style="${i === 5 ? actionTdStyle : tdStyle}">${row.td.replace(/\n/g, '<br/>')}</td>
+        </tr>`).join('')}
+      </table>
+    </body>
+    </html>`
 
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '회의록')
-    XLSX.writeFile(wb, `회의록_${new Date().getTime()}.xlsx`)
-  } catch (error: any) {
-    summaryError.value = 'Excel 저장에 실패했습니다: ' + (error.message || '')
-  }
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `회의록_${new Date().getTime()}.xls`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
-const sendEmail = () => {
+// 메일 서식 복사 — 화면과 동일한 HTML 테이블을 클립보드에 복사
+const sendEmail = async () => {
   if (!summaryResult.value) return
-  const subject = encodeURIComponent(summaryMode.value === 'meeting_minutes' ? '회의록 공유' : '음성 요약 공유')
-  let content = summaryResult.value
+
   if (summaryMode.value === 'meeting_minutes' && parsedMeetingMinutes.value) {
     const d = parsedMeetingMinutes.value
-    content = `[회의 주제]: ${d.topic}\n[일시]: ${d.date}\n[참석자]: ${d.attendees}\n\n[논의 사항]\n${(d.discussions || []).map((s: string) => `- ${s}`).join('\n')}\n\n[결정 사항]\n${(d.decisions || []).map((s: string) => `- ${s}`).join('\n')}\n\n[Action Items]\n${(d.actionItems || []).map((s: string) => `- ${s}`).join('\n')}`
+
+    const rows = [
+      { th: '회의 주제', td: d.topic || '' },
+      { th: '회의 일시', td: d.date || '' },
+      { th: '참석자', td: d.attendees || '' },
+      { th: '주요 논의 사항', td: (d.discussions || []).map((s: string) => `• ${s}`).join('<br>') },
+      { th: '결정 사항', td: (d.decisions || []).map((s: string) => `• ${s}`).join('<br>') },
+      { th: '추후 진행 사항', td: (d.actionItems || []).map((s: string) => `• ${s}`).join('<br>') },
+    ]
+
+    const html = `
+      <table style="border-collapse:collapse;font-family:Apple SD Gothic Neo,Malgun Gothic,sans-serif;font-size:14px;width:100%;">
+        <tr><td colspan="2" style="background:#1a73e8;color:#fff;font-weight:bold;font-size:16px;text-align:center;padding:12px 16px;">회의록</td></tr>
+        ${rows.map((row, i) => `
+          <tr>
+            <td style="background:#E8F0FE;font-weight:bold;color:#202124;padding:8px 12px;border:1px solid #c5c5c5;width:120px;vertical-align:top;">${row.th}</td>
+            <td style="background:${i === 5 ? '#FFF8E1' : '#fff'};color:${i === 5 ? '#5F4C00' : '#202124'};padding:8px 12px;border:1px solid #e0e0e0;vertical-align:top;">${row.td}</td>
+          </tr>`).join('')}
+      </table>`
+
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([`회의 주제: ${d.topic}\n회의 일시: ${d.date}\n참석자: ${d.attendees}\n\n주요 논의 사항:\n${(d.discussions||[]).join('\n')}\n\n결정 사항:\n${(d.decisions||[]).join('\n')}\n\n추후 진행:\n${(d.actionItems||[]).join('\n')}`], { type: 'text/plain' })
+        })
+      ])
+      alert('📋 메일 서식이 복사되었습니다!\n새 메일 작성창을 열고 Ctrl+V (붙여넣기)를 누르시면 표 형식 그대로 삽입됩니다.')
+    } catch {
+      const text = `회의 주제: ${d.topic}\n회의 일시: ${d.date}\n참석자: ${d.attendees}\n\n주요 논의 사항:\n${(d.discussions||[]).join('\n')}\n\n결정 사항:\n${(d.decisions||[]).join('\n')}\n\n추후 진행:\n${(d.actionItems||[]).join('\n')}`
+      await navigator.clipboard.writeText(text)
+      alert('메일 내용이 텍스트로 복사되었습니다.')
+    }
+  } else {
+    await navigator.clipboard.writeText(summaryResult.value)
+    alert('요약 내용이 클립보드에 복사되었습니다.\n메일 작성창에 붙여넣기 하세요.')
   }
-  const body = encodeURIComponent(content)
-  window.location.href = `mailto:?subject=${subject}&body=${body}`
 }
 
 onUnmounted(() => {
   if (isRecording.value) { stopRecording() }
   if (recordingInterval) { clearInterval(recordingInterval) }
-  if (chunkInterval) { clearInterval(chunkInterval) }
 })
 </script>
 
