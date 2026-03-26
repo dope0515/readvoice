@@ -5,6 +5,8 @@
       @drop.prevent="handleDrop"
       @dragover.prevent="isDragging = true"
       @dragleave.prevent="isDragging = false"
+      role="region"
+      aria-label="파일 업로드 영역"
       :class="[
         'upload-dropzone',
         { 'upload-dropzone--dragging': isDragging }
@@ -23,19 +25,20 @@
             name="file-upload"
             type="file"
             class="upload-dropzone__input"
-            accept=".wav,.mp3,.m4a,.flac,.ogg,audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/flac,audio/ogg"
+            accept=".wav,.mp3,.m4a,.flac,.ogg"
             @change="handleFileSelect"
+            aria-describedby="file-upload-hint"
           />
         </label>
         <span class="upload-dropzone__text"> 드래그 앤 드롭</span>
       </div>
-      <p v-if="!isConverting && !isSummarizing" class="upload-dropzone__hint">
+      <p v-if="!isConverting && !isSummarizing" id="file-upload-hint" class="upload-dropzone__hint">
         WAV, MP3, M4A, FLAC, OGG 파일 지원 (최대 100MB)
       </p>
     </div>
 
     <!-- 업로드된 파일 정보 -->
-    <div v-if="selectedFile" class="file-info">
+    <div v-if="selectedFile" class="file-info" role="status" aria-live="polite">
       <div class="file-info__content">
         <div class="file-info__details">
           <svg class="file-info__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,8 +51,8 @@
             <p class="file-info__size">{{ formatFileSize(selectedFile.size) }}</p>
           </div>
         </div>
-        <button @click="removeFile" class="file-info__remove">
-          <svg class="file-info__remove-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <button @click="removeFile" class="file-info__remove" aria-label="파일 제거">
+          <svg class="file-info__remove-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
@@ -79,9 +82,9 @@
     </div>
 
     <!-- 변환 결과 -->
-    <div v-if="transcriptionResult" class="result-card">
+    <div v-if="transcriptionResult" class="result-card" id="tabpanel-file" role="tabpanel" aria-labelledby="tab-file">
       <h3 class="result-card__title">변환 결과</h3>
-      <div class="result-card__content">
+      <div class="result-card__content" role="region" aria-label="변환된 텍스트">
         <!-- 화자 구분 뷰 -->
         <div v-if="diarizationResult && diarizationResult.length > 0" class="diarization-view">
           <div
@@ -260,7 +263,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import StatusAnimation from './StatusAnimation.vue'
 
 interface APIResponse {
@@ -472,10 +475,11 @@ const encodeFloat32ToWavBlob = (samples: any, sampleRate: number): Blob => {
   return new Blob([view], { type: 'audio/wav' })
 }
 
-const uploadChunk = async (blob: Blob, index: number): Promise<string> => {
+const uploadChunk = async (blob: Blob, index: number, contextPrompt: string = ''): Promise<string> => {
   const formData = new FormData()
   formData.append('file', blob, `chunk_${index}.wav`)
   formData.append('model', selectedModel.value)
+  if (contextPrompt) formData.append('contextPrompt', contextPrompt)
   
   const response = await $fetch<APIResponse>('/api/stt/upload', {
     method: 'POST',
@@ -516,8 +520,8 @@ const convertToText = async (): Promise<void> => {
       channelData = downsampleBuffer(channelData, audioBuffer.sampleRate, TARGET_SAMPLE_RATE)
     }
 
-    // 4. 청크 분할 (1분 = 60초)
-    const CHUNK_DURATION_SEC = 60
+    // 4. 청크 분할 (30초 — 짧을수록 Whisper 정확도 향상)
+    const CHUNK_DURATION_SEC = 30
     const samplesPerChunk = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC
     
     const chunks: any[] = []
@@ -530,10 +534,10 @@ const convertToText = async (): Promise<void> => {
     processedChunks.value = 0
     let fullTranscription = ''
 
-    // 5. 청크 순서대로 인코딩 후 전송
+    // 5. 청크 순서대로 인코딩 후 전송 (이전 텍스트를 context로 전달)
     for (let i = 0; i < chunks.length; i++) {
       const wavBlob = encodeFloat32ToWavBlob(chunks[i], TARGET_SAMPLE_RATE)
-      const chunkText = await uploadChunk(wavBlob, i)
+      const chunkText = await uploadChunk(wavBlob, i, fullTranscription)
       
       fullTranscription += (fullTranscription ? '\n\n' : '') + chunkText
       processedChunks.value = i + 1
@@ -664,10 +668,55 @@ const downloadSummary = () => {
   URL.revokeObjectURL(url)
 }
 
-// PDF 저장 — 브라우저 네이티브 인쇄(벡터 기반, 화질 100%)
-const exportToPdf = () => {
+// PDF 저장 — jsPDF + html2canvas로 파일 직접 다운로드
+const exportToPdf = async () => {
   if (!parsedMeetingMinutes.value) return
-  window.print()
+  isExportingPdf.value = true
+  try {
+    await nextTick()
+    const element = document.getElementById('meeting-minutes-area')
+    if (!element) throw new Error('회의록 영역을 찾을 수 없습니다.')
+
+    const { default: html2canvas } = await import('html2canvas')
+    const { jsPDF } = await import('jspdf')
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff'
+    })
+
+    const imgData = canvas.toDataURL('image/png')
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const margin = 15
+    const contentWidth = pageWidth - margin * 2
+    const imgHeight = (canvas.height * contentWidth) / canvas.width
+
+    let y = margin
+    let remainHeight = imgHeight
+    let srcY = 0
+
+    while (remainHeight > 0) {
+      const sliceHeight = Math.min(remainHeight, pageHeight - margin * 2)
+      const sliceCanvas = document.createElement('canvas')
+      sliceCanvas.width = canvas.width
+      sliceCanvas.height = (sliceHeight / contentWidth) * canvas.width
+      const ctx = sliceCanvas.getContext('2d')!
+      ctx.drawImage(canvas, 0, srcY * (canvas.height / imgHeight), canvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height)
+      pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', margin, y, contentWidth, sliceHeight)
+      remainHeight -= sliceHeight
+      srcY += sliceHeight
+      if (remainHeight > 0) { pdf.addPage(); y = margin }
+    }
+
+    pdf.save(`회의록_${new Date().getTime()}.pdf`)
+  } catch (e: any) {
+    alert('PDF 생성에 실패했습니다: ' + (e.message || e))
+  } finally {
+    isExportingPdf.value = false
+  }
 }
 
 // Excel 저장 — HTML table → XLS (서식 100% 유지)
@@ -715,51 +764,33 @@ const exportToExcel = () => {
   URL.revokeObjectURL(url)
 }
 
-// 메일 서식 복사 — 화면과 동일한 HTML 테이블을 클립보드에 복사
+// 메일 보내기 — mailto: 링크로 메일 앱 직접 열기
 const sendEmail = async () => {
   if (!summaryResult.value) return
 
   if (summaryMode.value === 'meeting_minutes' && parsedMeetingMinutes.value) {
     const d = parsedMeetingMinutes.value
+    const subject = encodeURIComponent(`[회의록] ${d.topic || '회의'}`)
+    const body = encodeURIComponent(
+      `회의 주제: ${d.topic || ''}
+회의 일시: ${d.date || ''}
+참석자: ${d.attendees || ''}
 
-    const rows = [
-      { th: '회의 주제', td: d.topic || '' },
-      { th: '회의 일시', td: d.date || '' },
-      { th: '참석자', td: d.attendees || '' },
-      { th: '주요 논의 사항', td: (d.discussions || []).map((s: string) => `• ${s}`).join('<br>') },
-      { th: '결정 사항', td: (d.decisions || []).map((s: string) => `• ${s}`).join('<br>') },
-      { th: '추후 진행 사항', td: (d.actionItems || []).map((s: string) => `• ${s}`).join('<br>') },
-    ]
+주요 논의 사항:
+${(d.discussions || []).map((s: string) => `• ${s}`).join('\n')}
 
-    const html = `
-      <table style="border-collapse:collapse;font-family:Apple SD Gothic Neo,Malgun Gothic,sans-serif;font-size:14px;width:100%;">
-        <tr><td colspan="2" style="background:#1a73e8;color:#fff;font-weight:bold;font-size:16px;text-align:center;padding:12px 16px;">회의록</td></tr>
-        ${rows.map((row, i) => `
-          <tr>
-            <td style="background:#E8F0FE;font-weight:bold;color:#202124;padding:8px 12px;border:1px solid #c5c5c5;width:120px;vertical-align:top;">${row.th}</td>
-            <td style="background:${i === 5 ? '#FFF8E1' : '#fff'};color:${i === 5 ? '#5F4C00' : '#202124'};padding:8px 12px;border:1px solid #e0e0e0;vertical-align:top;">${row.td}</td>
-          </tr>`).join('')}
-      </table>`
+결정 사항:
+${(d.decisions || []).map((s: string) => `• ${s}`).join('\n')}
 
-    try {
-      // 브라우저 Clipboard API로 HTML 복사
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'text/html': new Blob([html], { type: 'text/html' }),
-          'text/plain': new Blob([`회의 주제: ${d.topic}\n회의 일시: ${d.date}\n참석자: ${d.attendees}\n\n주요 논의 사항:\n${(d.discussions||[]).join('\n')}\n\n결정 사항:\n${(d.decisions||[]).join('\n')}\n\n추후 진행:\n${(d.actionItems||[]).join('\n')}`], { type: 'text/plain' })
-        })
-      ])
-      alert('📋 메일 서식이 복사되었습니다!\n새 메일 작성창을 열고 Ctrl+V (붙여넣기)를 누르시면 표 형식 그대로 삽입됩니다.')
-    } catch {
-      // Fallback: 일반 텍스트 복사
-      const text = `회의 주제: ${d.topic}\n회의 일시: ${d.date}\n참석자: ${d.attendees}\n\n주요 논의 사항:\n${(d.discussions||[]).join('\n')}\n\n결정 사항:\n${(d.decisions||[]).join('\n')}\n\n추후 진행:\n${(d.actionItems||[]).join('\n')}`
-      await navigator.clipboard.writeText(text)
-      alert('메일 내용이 텍스트로 복사되었습니다.')
-    }
+추후 진행 사항:
+${(d.actionItems || []).map((s: string) => `• ${s}`).join('\n')}`
+    )
+    window.location.href = `mailto:?subject=${subject}&body=${body}`
   } else {
-    // 일반 요약 — 텍스트 클립보드 복사
-    await navigator.clipboard.writeText(summaryResult.value)
-    alert('요약 내용이 클립보드에 복사되었습니다.\n메일 작성창에 붙여넣기 하세요.')
+    // 일반 요약 — mailto로 열기
+    const subject = encodeURIComponent('[AI 요약] 회의 내용')
+    const body = encodeURIComponent(summaryResult.value)
+    window.location.href = `mailto:?subject=${subject}&body=${body}`
   }
 }
 </script>
@@ -780,7 +811,7 @@ const sendEmail = async () => {
   padding: 48px 32px;
   text-align: center;
   transition: background-color 0.2s ease, border-color 0.2s ease;
-  background-color: #fafafa;
+  background-color: #ffffff;
 
   &:hover { border-color: #1a73e8; background-color: #f0f4ff; }
 

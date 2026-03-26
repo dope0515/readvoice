@@ -3,12 +3,14 @@
 /**
  * Groq Whisper API로 오디오 파일 전송 및 텍스트 변환
  * 모델: whisper-large-v3 (최고 정확도)
+ * @param contextPrompt 이전 청크 텍스트 — Whisper가 문맥을 이어받아 정확도를 높임
  */
 export async function transcribeAudio(
   config: any,
   audioBlob: Blob,
   filename: string,
-  model: string = 'whisper-large-v3'
+  model: string = 'whisper-large-v3',
+  contextPrompt: string = ''
 ): Promise<string> {
   const groqApiKey = config.groqApiKey
 
@@ -19,12 +21,18 @@ export async function transcribeAudio(
     })
   }
 
+  // Whisper prompt: 이전 텍스트가 있으면 문맥으로 시작 (최대 224 토큰)
+  const basePrompt = '한국어 음성 녹음입니다. 맞춤법과 띄어쓰기를 정확하게 유지해 주세요.'
+  const prompt = contextPrompt
+    ? `${contextPrompt.slice(-200)} ${basePrompt}`
+    : basePrompt
+
   try {
     const formData = new FormData()
     formData.append('file', audioBlob, filename)
     formData.append('model', model) // 선택된 Groq Whisper 모델
     formData.append('language', 'ko') // 한국어 최적화
-    formData.append('prompt', '이것은 회의록 작성을 위한 한국어 음성 녹음입니다. 맞춤법과 띄어쓰기를 정확하게 유지하고, 회의 문맥에 맞는 전문 용어를 정확하게 인식해 주세요.')
+    formData.append('prompt', prompt)
     formData.append('response_format', 'json')
 
     const response = await $fetch<{ text: string }>(
