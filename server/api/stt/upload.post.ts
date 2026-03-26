@@ -28,9 +28,11 @@ export default defineEventHandler(async (event) => {
     const filename = fileField.filename || 'audio.wav'
     const fileBlob = new Blob([new Uint8Array(fileField.data)])
     const model = modelField?.data ? new TextDecoder().decode(modelField.data) : 'whisper-large-v3'
+    const contextField = formData.find(field => field.name === 'contextPrompt')
+    const contextPrompt = contextField?.data ? new TextDecoder().decode(contextField.data) : ''
 
-    // 2. Whisper API로 음성 변환 (선택된 모델 전달)
-    const text = await transcribeAudio(config, fileBlob, filename, model)
+    // 2. Whisper API로 음성 변환 (선택된 모델 + 이전 텍스트 문맥 전달)
+    const text = await transcribeAudio(config, fileBlob, filename, model, contextPrompt)
 
     return {
       success: true,

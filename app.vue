@@ -6,7 +6,7 @@
       <div class="app-header__container">
         <div class="app-header__brand">
           <!-- Multi-color Google-style mic icon -->
-          <svg class="app-header__logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg class="app-header__logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="읽어줄래요 로고">
             <circle cx="20" cy="20" r="20" fill="#ffffff"/>
             <rect x="15" y="8" width="10" height="16" rx="5" fill="#4285F4"/>
             <path d="M10 20c0 5.523 4.477 10 10 10s10-4.477 10-10" stroke="#EA4335" stroke-width="2.5" stroke-linecap="round" fill="none"/>
@@ -95,7 +95,7 @@ const changeTab = (tabId: string) => { activeTab.value = tabId }
 
   &__title {
     font-size: 22px;
-    font-weight: 400;
+    font-weight: 600;
     letter-spacing: -0.3px;
     
     // Google multi-color letters
@@ -145,6 +145,7 @@ const changeTab = (tabId: string) => { activeTab.value = tabId }
   &__content {
     user-select: text;
     -webkit-user-select: text;
+    min-height: 480px; // 탭 전환 시 화면 떨림 방지를 위한 최소 높이 설정
   }
 }
 

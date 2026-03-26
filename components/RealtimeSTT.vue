@@ -16,46 +16,47 @@
       <button
         @click="toggleRecording"
         :disabled="isConverting"
+        :aria-label="isRecording ? '녹음 중지' : '녹음 시작'"
         :class="[
           'record-btn',
           isRecording ? 'record-btn--recording' : 'record-btn--idle',
           { 'record-btn--disabled': isConverting }
         ]"
       >
-        <svg v-if="!isRecording" class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24">
+        <svg v-if="!isRecording" class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 15c1.66 0 3-1.34 3-3V6c0-1.66-1.34-3-3-3S9 4.34 9 6v6c0 1.66 1.34 3 3 3z"/>
           <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
         </svg>
-        <svg v-else class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24">
+        <svg v-else class="record-btn__icon" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="6" y="6" width="12" height="12" rx="2"/>
         </svg>
       </button>
 
-      <p class="record-control__hint">
+      <p class="record-control__hint" aria-hidden="true">
         {{ isRecording ? '녹음 중지하려면 클릭' : '녹음 시작하려면 클릭' }}
       </p>
     </div>
 
     <!-- 녹음 시간 -->
-    <div v-if="isRecording" class="record-timer">
+    <div v-if="isRecording" class="record-timer" role="timer" aria-live="off">
       <p class="record-timer__text">{{ formatTime(recordingTime) }}</p>
     </div>
 
-    <!-- 록음 종료 후 변환 중 상태 -->
-    <div v-if="isConverting" class="record-timer">
+    <!-- 녹음 종료 후 변환 중 상태 -->
+    <div v-if="isConverting" class="record-timer" role="status" aria-live="polite">
       <p class="record-timer__text">
-        {{ totalChunks > 1 ? `변환 중... (${processedChunks}/${totalChunks})` : '변환 중...' }}
+        {{ totalChunks > 1 ? `텍스트 변환 중... (${processedChunks}/${totalChunks})` : '텍스트 변환 중...' }}
       </p>
     </div>
 
     <!-- 텍스트 결과 -->
-    <div v-if="transcriptionText || isConverting" class="result-box">
+    <div v-if="transcriptionText || isConverting" class="result-box" id="tabpanel-realtime" role="tabpanel" aria-labelledby="tab-realtime">
       <h3 class="result-box__title">
-        <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
-        녕음 변환 결과
+        녹음 인식 결과
       </h3>
       
       <div class="result-box__content">
@@ -256,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, nextTick } from 'vue'
 import StatusAnimation from './StatusAnimation.vue'
 
 interface APIResponse {
@@ -475,7 +476,7 @@ const transcribeRecordedAudio = async (fullBlob: Blob) => {
       channelData = downsampleBuffer(channelData, audioBuffer.sampleRate, TARGET_SAMPLE_RATE)
     }
 
-    const CHUNK_DURATION_SEC = 60
+    const CHUNK_DURATION_SEC = 30
     const samplesPerChunk = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC
     const chunks: any[] = []
     for (let i = 0; i < channelData.length; i += samplesPerChunk) {
@@ -490,6 +491,7 @@ const transcribeRecordedAudio = async (fullBlob: Blob) => {
       const formData = new FormData()
       formData.append('file', wavBlob, `chunk_${i}.wav`)
       formData.append('model', selectedModel.value)
+      if (fullTranscription) formData.append('contextPrompt', fullTranscription)
       const response = await $fetch<APIResponse>('/api/stt/upload', { method: 'POST', body: formData } as any)
       if (response.success && response.text) {
         fullTranscription += (fullTranscription ? '\n\n' : '') + response.text.trim()
@@ -713,10 +715,54 @@ const downloadSummary = () => {
   URL.revokeObjectURL(url)
 }
 
-// PDF 저장 — 브라우저 네이티브 인쇄(벡터 기반, 화질 100%)
-const exportToPdf = () => {
+// PDF 저장 — jsPDF + html2canvas로 파일 직접 다운로드
+const exportToPdf = async () => {
   if (!parsedMeetingMinutes.value) return
-  window.print()
+  isExportingPdf.value = true
+  try {
+    await nextTick()
+    const element = document.getElementById('meeting-minutes-area-realtime')
+    if (!element) throw new Error('회의록 영역을 찾을 수 없습니다.')
+
+    const { default: html2canvas } = await import('html2canvas')
+    const { jsPDF } = await import('jspdf')
+
+    const canvas = await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff'
+    })
+
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = pdf.internal.pageSize.getHeight()
+    const margin = 15
+    const contentWidth = pageWidth - margin * 2
+    const imgHeight = (canvas.height * contentWidth) / canvas.width
+
+    let y = margin
+    let remainHeight = imgHeight
+    let srcY = 0
+
+    while (remainHeight > 0) {
+      const sliceHeight = Math.min(remainHeight, pageHeight - margin * 2)
+      const sliceCanvas = document.createElement('canvas')
+      sliceCanvas.width = canvas.width
+      sliceCanvas.height = (sliceHeight / contentWidth) * canvas.width
+      const ctx = sliceCanvas.getContext('2d')!
+      ctx.drawImage(canvas, 0, srcY * (canvas.height / imgHeight), canvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height)
+      pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', margin, y, contentWidth, sliceHeight)
+      remainHeight -= sliceHeight
+      srcY += sliceHeight
+      if (remainHeight > 0) { pdf.addPage(); y = margin }
+    }
+
+    pdf.save(`회의록_${new Date().getTime()}.pdf`)
+  } catch (e: any) {
+    alert('PDF 생성에 실패했습니다: ' + (e.message || e))
+  } finally {
+    isExportingPdf.value = false
+  }
 }
 
 // Excel 저장 — HTML table → XLS (서식 100% 유지)
@@ -764,48 +810,33 @@ const exportToExcel = () => {
   URL.revokeObjectURL(url)
 }
 
-// 메일 서식 복사 — 화면과 동일한 HTML 테이블을 클립보드에 복사
+// 메일 보내기 — mailto: 링크로 메일 앱 직접 열기
 const sendEmail = async () => {
   if (!summaryResult.value) return
 
   if (summaryMode.value === 'meeting_minutes' && parsedMeetingMinutes.value) {
     const d = parsedMeetingMinutes.value
+    const subject = encodeURIComponent(`[회의록] ${d.topic || '회의'}`)
+    const body = encodeURIComponent(
+      `회의 주제: ${d.topic || ''}
+회의 일시: ${d.date || ''}
+참석자: ${d.attendees || ''}
 
-    const rows = [
-      { th: '회의 주제', td: d.topic || '' },
-      { th: '회의 일시', td: d.date || '' },
-      { th: '참석자', td: d.attendees || '' },
-      { th: '주요 논의 사항', td: (d.discussions || []).map((s: string) => `• ${s}`).join('<br>') },
-      { th: '결정 사항', td: (d.decisions || []).map((s: string) => `• ${s}`).join('<br>') },
-      { th: '추후 진행 사항', td: (d.actionItems || []).map((s: string) => `• ${s}`).join('<br>') },
-    ]
+주요 논의 사항:
+${(d.discussions || []).map((s: string) => `• ${s}`).join('\n')}
 
-    const html = `
-      <table style="border-collapse:collapse;font-family:Apple SD Gothic Neo,Malgun Gothic,sans-serif;font-size:14px;width:100%;">
-        <tr><td colspan="2" style="background:#1a73e8;color:#fff;font-weight:bold;font-size:16px;text-align:center;padding:12px 16px;">회의록</td></tr>
-        ${rows.map((row, i) => `
-          <tr>
-            <td style="background:#E8F0FE;font-weight:bold;color:#202124;padding:8px 12px;border:1px solid #c5c5c5;width:120px;vertical-align:top;">${row.th}</td>
-            <td style="background:${i === 5 ? '#FFF8E1' : '#fff'};color:${i === 5 ? '#5F4C00' : '#202124'};padding:8px 12px;border:1px solid #e0e0e0;vertical-align:top;">${row.td}</td>
-          </tr>`).join('')}
-      </table>`
+결정 사항:
+${(d.decisions || []).map((s: string) => `• ${s}`).join('\n')}
 
-    try {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          'text/html': new Blob([html], { type: 'text/html' }),
-          'text/plain': new Blob([`회의 주제: ${d.topic}\n회의 일시: ${d.date}\n참석자: ${d.attendees}\n\n주요 논의 사항:\n${(d.discussions||[]).join('\n')}\n\n결정 사항:\n${(d.decisions||[]).join('\n')}\n\n추후 진행:\n${(d.actionItems||[]).join('\n')}`], { type: 'text/plain' })
-        })
-      ])
-      alert('📋 메일 서식이 복사되었습니다!\n새 메일 작성창을 열고 Ctrl+V (붙여넣기)를 누르시면 표 형식 그대로 삽입됩니다.')
-    } catch {
-      const text = `회의 주제: ${d.topic}\n회의 일시: ${d.date}\n참석자: ${d.attendees}\n\n주요 논의 사항:\n${(d.discussions||[]).join('\n')}\n\n결정 사항:\n${(d.decisions||[]).join('\n')}\n\n추후 진행:\n${(d.actionItems||[]).join('\n')}`
-      await navigator.clipboard.writeText(text)
-      alert('메일 내용이 텍스트로 복사되었습니다.')
-    }
+추후 진행 사항:
+${(d.actionItems || []).map((s: string) => `• ${s}`).join('\n')}`
+    )
+    window.location.href = `mailto:?subject=${subject}&body=${body}`
   } else {
-    await navigator.clipboard.writeText(summaryResult.value)
-    alert('요약 내용이 클립보드에 복사되었습니다.\n메일 작성창에 붙여넣기 하세요.')
+    // 일반 요약 — mailto로 열기
+    const subject = encodeURIComponent('[AI 요약] 회의 내용')
+    const body = encodeURIComponent(summaryResult.value)
+    window.location.href = `mailto:?subject=${subject}&body=${body}`
   }
 }
 
