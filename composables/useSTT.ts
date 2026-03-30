@@ -57,12 +57,12 @@ export const useSTT = () => {
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
 
       const TARGET_SAMPLE_RATE = 16000
-      let channelData = audioBuffer.getChannelData(0)
+      let channelData = audioBuffer.getChannelData(0);
       if (audioBuffer.sampleRate !== TARGET_SAMPLE_RATE) {
         channelData = downsampleBuffer(channelData, audioBuffer.sampleRate, TARGET_SAMPLE_RATE)
       }
 
-      const CHUNK_DURATION_SEC = 30
+      const CHUNK_DURATION_SEC = 120 // Vercel 요량 제한(4.5MB) 내에서 요청 횟수 최소화 (약 3.84MB)
       const samplesPerChunk = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC
       const chunks: Float32Array[] = []
       for (let i = 0; i < channelData.length; i += samplesPerChunk) {
@@ -73,19 +73,41 @@ export const useSTT = () => {
       let fullTranscription = ''
 
       for (let i = 0; i < chunks.length; i++) {
+        // [추가] 과도한 RPM 방지를 위한 500ms 지연
+        if (i > 0) await new Promise(resolve => setTimeout(resolve, 500))
+
         const wavBlob = encodeFloat32ToWavBlob(chunks[i], TARGET_SAMPLE_RATE)
         const formData = new FormData()
         formData.append('file', wavBlob, `chunk_${i}.wav`)
         formData.append('model', model)
         if (fullTranscription) formData.append('contextPrompt', fullTranscription)
         
-        const response = await $fetch<{ success: boolean; text?: string }>('/api/stt/upload', { 
-          method: 'POST', 
-          body: formData 
-        } as any)
-        
-        if (response.success && response.text) {
-          fullTranscription += (fullTranscription ? '\n\n' : '') + response.text.trim()
+        // [개선] 429 에러 발생 시 자동 재시도 로직
+        let retryCount = 0
+        const maxRetries = 3
+        let success = false
+
+        while (!success && retryCount < maxRetries) {
+          try {
+            const response = await $fetch<{ success: boolean; text?: string }>('/api/stt/upload', { 
+              method: 'POST', 
+              body: formData 
+            } as any)
+            
+            if (response.success && response.text) {
+              fullTranscription += (fullTranscription ? '\n\n' : '') + response.text.trim()
+            }
+            success = true
+          } catch (error: any) {
+            // 429 에러인 경우 3초 대기 후 재시도
+            if (error.statusCode === 429 && retryCount < maxRetries - 1) {
+              console.warn(`Rate limit hit (429), retrying in 3s... (${retryCount + 1}/${maxRetries})`)
+              await new Promise(resolve => setTimeout(resolve, 3000))
+              retryCount++
+            } else {
+              throw error // 그 외 에러는 상위로 던짐
+            }
+          }
         }
         processedChunks.value = i + 1
       }

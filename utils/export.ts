@@ -90,10 +90,33 @@ export const exportToExcel = (data: any, filename: string) => {
 }
 
 /**
- * Send content via Email
+ * Send content via Email using default mail app (mailto)
  */
-export const sendEmail = (subjectLine: string, bodyText: string) => {
+export const sendEmail = (subjectLine: string, bodyText: string, data?: any) => {
+  let content = bodyText;
+
+  // 만약 정리된 회의록 데이터가 있다면, 텍스트로 보기 좋게 포맷팅
+  if (data) {
+    const { topic = '제목 없음', date = '-', attendees = '-', discussions = [], decisions = [], actionItems = [] } = data;
+    
+    content = `[회의 주제]: ${topic}\n`;
+    content += `[회의 일시]: ${date}\n`;
+    content += `[참석자]: ${attendees}\n\n`;
+    
+    if (discussions.length > 0) {
+      content += `[주요 논의 사항]\n${discussions.map((d: string) => `- ${d}`).join('\n')}\n\n`;
+    }
+    
+    if (decisions.length > 0) {
+      content += `[결정 사항]\n${decisions.map((d: string) => `- ${d}`).join('\n')}\n\n`;
+    }
+    
+    if (actionItems.length > 0) {
+      content += `[추후 진행 사항]\n${actionItems.map((a: string) => `- ${a}`).join('\n')}\n`;
+    }
+  }
+
   const subject = encodeURIComponent(subjectLine)
-  const body = encodeURIComponent(bodyText)
+  const body = encodeURIComponent(content)
   window.location.href = `mailto:?subject=${subject}&body=${body}`
 }

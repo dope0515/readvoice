@@ -118,7 +118,7 @@
             {{ diarizationResult ? '화자구분 초기화' : '화자 구분' }}
           </button>
           <button
-            @click="stt.summarize(transcriptionResult, 'summary')"
+            @click="handleSummarize('summary')"
             :disabled="isSummarizing"
             :class="['btn-primary', { 'btn-primary--disabled': isSummarizing }]"
           >
@@ -133,7 +133,7 @@
               :disabled="isSummarizing"
             />
             <button
-              @click="stt.summarize(transcriptionResult, 'meeting_minutes', attendeesInput)"
+              @click="handleSummarize('meeting_minutes')"
               :disabled="isSummarizing"
               :class="['btn-primary btn-primary--dark', { 'btn-primary--disabled': isSummarizing }]"
             >
@@ -312,15 +312,14 @@ const formattedTranscriptionParagraphs = computed(() => {
 })
 
 const parsedMeetingMinutes = computed(() => {
-  if (summaryResult.value) {
+  if (summaryResult.value && summaryMode.value === 'meeting_minutes') {
     try {
       const parsed = JSON.parse(summaryResult.value)
-      if (parsed.topic) {
-        summaryMode.value = 'meeting_minutes'
+      if (parsed && typeof parsed === 'object') {
         return parsed
       }
     } catch {
-      summaryMode.value = 'summary'
+      return null
     }
   }
   return null
@@ -345,6 +344,11 @@ const formatTime = (seconds: number): string => {
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+}
+
+const handleSummarize = async (mode: 'summary' | 'meeting_minutes') => {
+  summaryMode.value = mode
+  await stt.summarize(transcriptionResult.value, mode, mode === 'meeting_minutes' ? attendeesInput.value : '')
 }
 
 const toggleRecording = async () => {
@@ -376,7 +380,15 @@ const startRecording = async () => {
 
       if (chunks.length > 0) {
         masterAudioBlob.value = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
-        await stt.transcribeAudioChunks(masterAudioBlob.value, selectedModel.value)
+        try {
+          await stt.transcribeAudioChunks(masterAudioBlob.value, selectedModel.value)
+        } catch (error: any) {
+          if (error.statusCode === 429 || error.message?.includes('Rate limit')) {
+            errorMessage.value = 'API 사용량이 초고되었습니다. 잠시 후 다시 시도해주세요.'
+          } else {
+            errorMessage.value = '변환 중 오류가 발생했습니다: ' + (error.message || '알 수 없는 오류')
+          }
+        }
       }
     }
 
@@ -504,7 +516,7 @@ const downloadSummary = () => {
 const handleExportPdf = async () => {
   isExportingPdf.value = true
   try {
-    await exportToPdf('meeting_minutes-area-realtime', `회의록_${new Date().getTime()}`)
+    await exportToPdf('meeting-minutes-area-realtime', `회의록_${new Date().getTime()}`)
   } catch (e) {
     alert('PDF 생성 실패')
   } finally {
@@ -520,7 +532,7 @@ const handleExportExcel = () => {
 const handleSendEmail = () => {
   if (!summaryResult.value) return
   const subject = summaryMode.value === 'meeting_minutes' ? '[회의록] 회의 결과' : '[AI 요약] 회의 내용'
-  sendEmail(subject, summaryResult.value)
+  sendEmail(subject, summaryResult.value, parsedMeetingMinutes.value)
 }
 
 onUnmounted(() => {
