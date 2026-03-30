@@ -7,10 +7,15 @@
     <div class="record-control">
       <div class="model-select">
         <label for="model-select" class="model-select__label">변환 모델 선택</label>
-        <select id="model-select" v-model="selectedModel" class="model-select__input" :disabled="isRecording || isProcessing">
+        <select id="model-select" v-model="selectedModel" class="model-select__input" :disabled="isRecording || isConverting">
           <option value="whisper-large-v3">일반모드</option>
           <option value="whisper-large-v3-turbo">터보모드</option>
         </select>
+      </div>
+
+      <!-- 볼륨 비주얼라이저 -->
+      <div v-if="isRecording" class="volume-visualizer">
+        <canvas ref="visualizerCanvas" width="200" height="40"></canvas>
       </div>
 
       <button
@@ -50,7 +55,7 @@
     </div>
 
     <!-- 텍스트 결과 -->
-    <div v-if="transcriptionText || isConverting" class="result-box" id="tabpanel-realtime" role="tabpanel" aria-labelledby="tab-realtime">
+    <div v-if="transcriptionResult || isConverting" class="result-box" id="tabpanel-realtime" role="tabpanel" aria-labelledby="tab-realtime">
       <h3 class="result-box__title">
         <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
@@ -60,7 +65,7 @@
       </h3>
       
       <div class="result-box__content">
-        <div v-if="isConverting && !transcriptionText" class="loading-dots">
+        <div v-if="isConverting && !transcriptionResult" class="loading-dots">
           <div class="loading-dots__dot loading-dots__dot--1"></div>
           <div class="loading-dots__dot loading-dots__dot--2"></div>
           <div class="loading-dots__dot loading-dots__dot--3"></div>
@@ -89,22 +94,20 @@
         </template>
       </div>
 
-      <div v-if="transcriptionText" class="result-box__actions">
+      <div v-if="transcriptionResult" class="result-box__actions">
         <button @click="clearTranscription" class="btn-clear">초기화</button>
         <div class="result-box__main-actions">
-          <button v-if="masterAudioBlobs.length > 0" @click="downloadAudio" class="btn-secondary">오디오 다운로드</button>
+          <button v-if="masterAudioBlob" @click="handleDownloadAudio" class="btn-secondary">오디오 다운로드</button>
           <button @click="copyToClipboard" class="btn-secondary">복사</button>
-          <!-- 텍스트 정리 버튼 -->
           <button
-            @click="formatTranscription"
+            @click="stt.formatText(transcriptionResult)"
             :disabled="isSummarizing"
             :class="['btn-format', { 'btn-format--disabled': isSummarizing }]"
           >
             텍스트 정리
           </button>
-          <!-- 화자 구분 버튼 -->
           <button
-            @click="diarizeText"
+            @click="stt.diarize(transcriptionResult)"
             :disabled="isSummarizing"
             :class="['btn-diarize', { 'btn-diarize--disabled': isSummarizing }]"
           >
@@ -115,7 +118,7 @@
             {{ diarizationResult ? '화자구분 초기화' : '화자 구분' }}
           </button>
           <button
-            @click="summarizeText('summary')"
+            @click="stt.summarize(transcriptionResult, 'summary')"
             :disabled="isSummarizing"
             :class="['btn-primary', { 'btn-primary--disabled': isSummarizing }]"
           >
@@ -130,7 +133,7 @@
               :disabled="isSummarizing"
             />
             <button
-              @click="summarizeText('meeting_minutes')"
+              @click="stt.summarize(transcriptionResult, 'meeting_minutes', attendeesInput)"
               :disabled="isSummarizing"
               :class="['btn-primary btn-primary--dark', { 'btn-primary--disabled': isSummarizing }]"
             >
@@ -151,10 +154,8 @@
         {{ summaryMode === 'meeting_minutes' ? '회의록 결과' : 'AI 요약 결과' }}
       </h3>
       
-      <!-- 일반 요약 -->
       <div v-if="summaryMode === 'summary'" class="summary-card__content" v-html="formattedSummaryResult"></div>
       
-      <!-- 회의록 테이블 -->
       <div v-if="summaryMode === 'meeting_minutes' && parsedMeetingMinutes" class="summary-card__content meeting-table-wrapper" id="meeting-minutes-area-realtime">
         <table class="meeting-table">
           <tbody>
@@ -199,11 +200,11 @@
       </div>
 
       <div class="summary-card__actions">
-        <button v-if="summaryMode === 'meeting_minutes'" @click="exportToPdf" class="btn-action" :disabled="isExportingPdf">
+        <button v-if="summaryMode === 'meeting_minutes'" @click="handleExportPdf" class="btn-action" :disabled="isExportingPdf">
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
           {{ isExportingPdf ? 'PDF 생성 중...' : 'PDF 저장' }}
         </button>
-        <button v-if="summaryMode === 'meeting_minutes'" @click="exportToExcel" class="btn-action">
+        <button v-if="summaryMode === 'meeting_minutes'" @click="handleExportExcel" class="btn-action">
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
           EXCEL 저장
         </button>
@@ -211,7 +212,7 @@
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
           TXT 저장
         </button>
-        <button @click="sendEmail" class="btn-action">
+        <button @click="handleSendEmail" class="btn-action">
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
           메일 보내기
         </button>
@@ -257,139 +258,47 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import StatusAnimation from './StatusAnimation.vue'
-
-interface APIResponse {
-  success: boolean
-  text?: string
-}
-
-interface DiarizationSegment {
-  speaker: string
-  text: string
-}
+import { useSTT } from '~/composables/useSTT'
+import { exportToPdf, exportToExcel, sendEmail } from '~/utils/export'
 
 const isRecording = ref(false)
-const isProcessing = ref(false)
 const recordingTime = ref(0)
-const transcriptionText = ref('')
 const errorMessage = ref('')
 const showPermissionInfo = ref(false)
-const isSummarizing = ref(false)
-const summaryResult = ref('')
-const summaryError = ref('')
 const selectedModel = ref('whisper-large-v3')
-const masterAudioBlobs = ref<Blob[]>([])
-const isConverting = ref(false)
-const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
+const masterAudioBlob = ref<Blob | null>(null)
 const attendeesInput = ref('')
-const diarizationResult = ref<DiarizationSegment[] | null>(null)
 const isExportingPdf = ref(false)
-const totalChunks = ref(0)
-const processedChunks = ref(0)
+const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 
-// WebM/MP4 Blob을 완전한 형태의 WAV(PCM 16-bit) Blob으로 변환
-// (Groq API가 브라우저의 불완전한 WebM을 거부하는 문제 해결)
-const convertBlobToWav = async (blob: Blob): Promise<Blob> => {
-  const arrayBuffer = await blob.arrayBuffer()
-  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-
-  const numOfChan = audioBuffer.numberOfChannels
-  const length = audioBuffer.length * numOfChan * 2 + 44
-  const buffer = new ArrayBuffer(length)
-  const view = new DataView(buffer)
-  
-  const writeString = (view: DataView, offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++) {
-      view.setUint8(offset + i, string.charCodeAt(i))
-    }
-  }
-
-  writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + audioBuffer.length * numOfChan * 2, true)
-  writeString(view, 8, 'WAVE')
-  writeString(view, 12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, numOfChan, true)
-  view.setUint32(24, audioBuffer.sampleRate, true)
-  view.setUint32(28, audioBuffer.sampleRate * 2 * numOfChan, true)
-  view.setUint16(32, numOfChan * 2, true)
-  view.setUint16(34, 16, true)
-  writeString(view, 36, 'data')
-  view.setUint32(40, audioBuffer.length * numOfChan * 2, true)
-
-  let offset = 44
-  for (let i = 0; i < audioBuffer.length; i++) {
-    for (let channel = 0; channel < numOfChan; channel++) {
-      let sample = audioBuffer.getChannelData(channel)[i]
-      sample = Math.max(-1, Math.min(1, sample))
-      sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF
-      view.setInt16(offset, sample, true)
-      offset += 2
-    }
-  }
-
-  return new Blob([view], { type: 'audio/wav' })
-}
-
-// 배경 녹음 유지를 위한 Wake Lock & Silence Audio
+const visualizerCanvas = ref<HTMLCanvasElement | null>(null)
+let audioContext: AudioContext | null = null
+let analyser: AnalyserNode | null = null
+let animationFrameId: number | null = null
+let mediaRecorder: MediaRecorder | null = null
+let recordingInterval: number | null = null
 let wakeLock: any = null
 let silenceAudio: HTMLAudioElement | null = null
 
-const requestWakeLock = async () => {
-  if ('wakeLock' in navigator) {
-    try {
-      wakeLock = await (navigator as any).wakeLock.request('screen')
-      console.log('Wake Lock 활성화')
-    } catch (err: any) {
-      console.error(`${err.name}, ${err.message}`)
-    }
-  }
-}
-
-const releaseWakeLock = () => {
-  if (wakeLock) {
-    wakeLock.release().then(() => {
-      wakeLock = null
-      console.log('Wake Lock 해제')
-    })
-  }
-}
-
-const startSilenceLoop = () => {
-  // 1초 무음 오디오 (Base64) - 브라우저가 배경에서 정지되는 것을 방지
-  const silenceSrc = 'data:audio/wav;base64,UklGRigAAABXQVZFRm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='
-  if (!silenceAudio) {
-    silenceAudio = new Audio(silenceSrc)
-    silenceAudio.loop = true
-  }
-  silenceAudio.play().catch(e => console.warn('Silence audio play failed:', e))
-}
-
-const stopSilenceLoop = () => {
-  if (silenceAudio) {
-    silenceAudio.pause()
-    silenceAudio.currentTime = 0
-  }
-}
-
-// 화자 인덱스 (0~4) → 색상 클래스
-const speakerMap = ref<Record<string, number>>({})
-const getSpeakerIndex = (speaker: string): number => {
-  if (!(speaker in speakerMap.value)) {
-    const idx = Object.keys(speakerMap.value).length % 5
-    speakerMap.value[speaker] = idx
-  }
-  return speakerMap.value[speaker]
-}
+const stt = useSTT()
+const {
+  isConverting,
+  isSummarizing,
+  transcriptionResult,
+  summaryResult,
+  summaryError,
+  diarizationResult,
+  totalChunks,
+  processedChunks,
+  getSpeakerIndex
+} = stt
 
 // STT 텍스트를 문단 단위로 나누기
 const formattedTranscriptionParagraphs = computed(() => {
-  if (!transcriptionText.value) return []
-  const text = transcriptionText.value.trim()
+  if (!transcriptionResult.value) return []
+  const text = transcriptionResult.value.trim()
   if (text.includes('\n\n')) {
     return text.split('\n\n').filter(p => p.trim())
   }
@@ -403,119 +312,32 @@ const formattedTranscriptionParagraphs = computed(() => {
 })
 
 const parsedMeetingMinutes = computed(() => {
-  if (summaryMode.value === 'meeting_minutes' && summaryResult.value) {
+  if (summaryResult.value) {
     try {
-      return JSON.parse(summaryResult.value)
-    } catch (e) {
-      return null
+      const parsed = JSON.parse(summaryResult.value)
+      if (parsed.topic) {
+        summaryMode.value = 'meeting_minutes'
+        return parsed
+      }
+    } catch {
+      summaryMode.value = 'summary'
     }
   }
   return null
 })
 
 const formattedSummaryResult = computed(() => {
-  if (!summaryResult.value) return ''
+  if (!summaryResult.value || summaryMode.value === 'meeting_minutes') return ''
   let html = summaryResult.value.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
   html = html.replace(/\n/g, '<br>')
   return `<div class="formatted-text">${html}</div>`
 })
 
-let mediaRecorder: MediaRecorder | null = null
-let recordingInterval: number | null = null
-
-// \ub2e4\uc6b4\uc0d8\ud50c\ub9c1 & WAV \uc778\ucf54\ub529 \uc720\ud2f8\ub9ac\ud2f0
-const downsampleBuffer = (buffer: any, originalRate: number, targetRate: number) => {
-  if (targetRate === originalRate) return buffer
-  const ratio = originalRate / targetRate
-  const newLength = Math.round(buffer.length / ratio)
-  const result = new Float32Array(newLength)
-  let outOffset = 0, inOffset = 0
-  while (outOffset < result.length) {
-    const nextIn = Math.round((outOffset + 1) * ratio)
-    let accum = 0, count = 0
-    for (let i = inOffset; i < nextIn && i < buffer.length; i++) { accum += buffer[i]; count++ }
-    result[outOffset] = accum / count
-    outOffset++
-    inOffset = nextIn
-  }
-  return result
-}
-
-const encodeFloat32ToWavBlob = (samples: any, sampleRate: number): Blob => {
-  const buffer = new ArrayBuffer(44 + samples.length * 2)
-  const view = new DataView(buffer)
-  const w = (v: DataView, o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)) }
-  w(view, 0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); w(view, 8, 'WAVE'); w(view, 12, 'fmt ')
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true)
-  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true)
-  w(view, 36, 'data'); view.setUint32(40, samples.length * 2, true)
-  let offset = 44
-  for (let i = 0; i < samples.length; i++, offset += 2) {
-    const s = Math.max(-1, Math.min(1, samples[i]))
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
-  }
-  return new Blob([view], { type: 'audio/wav' })
-}
-
-// \ub179\uc74c \uc644\ub8cc \ud6c4 \ubcc0\ud658 \ud30c\uc774\ud504\ub77c\uc778 (FileUploadSTT\uc640 \ub3d9\uc77c\ud55c \ub85c\uc9c1)
-const transcribeRecordedAudio = async (fullBlob: Blob) => {
-  isConverting.value = true
-  errorMessage.value = ''
-  transcriptionText.value = ''
-  totalChunks.value = 0
-  processedChunks.value = 0
-
-  try {
-    const arrayBuffer = await fullBlob.arrayBuffer()
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-
-    const TARGET_SAMPLE_RATE = 16000
-    let channelData = audioBuffer.getChannelData(0)
-    if (audioBuffer.sampleRate !== TARGET_SAMPLE_RATE) {
-      channelData = downsampleBuffer(channelData, audioBuffer.sampleRate, TARGET_SAMPLE_RATE)
-    }
-
-    const CHUNK_DURATION_SEC = 30
-    const samplesPerChunk = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC
-    const chunks: any[] = []
-    for (let i = 0; i < channelData.length; i += samplesPerChunk) {
-      chunks.push(channelData.slice(i, Math.min(i + samplesPerChunk, channelData.length)))
-    }
-
-    totalChunks.value = chunks.length
-    let fullTranscription = ''
-
-    for (let i = 0; i < chunks.length; i++) {
-      const wavBlob = encodeFloat32ToWavBlob(chunks[i], TARGET_SAMPLE_RATE)
-      const formData = new FormData()
-      formData.append('file', wavBlob, `chunk_${i}.wav`)
-      formData.append('model', selectedModel.value)
-      if (fullTranscription) formData.append('contextPrompt', fullTranscription)
-      const response = await $fetch<APIResponse>('/api/stt/upload', { method: 'POST', body: formData } as any)
-      if (response.success && response.text) {
-        fullTranscription += (fullTranscription ? '\n\n' : '') + response.text.trim()
-      }
-      processedChunks.value = i + 1
-    }
-
-    transcriptionText.value = fullTranscription
-  } catch (error: any) {
-    console.error('Transcription error:', error)
-    errorMessage.value = error.data?.message || error.message || '\ubcc0\ud658 \uc911 \uc624\ub958\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4.'
-  } finally {
-    isConverting.value = false
-  }
-}
-
-// \ub0b4\ubd80 \ud638\ud658\uc131\uc744 \uc704\ud55c computed
-const activeChunkRequests = computed(() => isConverting.value ? 1 : 0)
-
 const currentStatus = computed(() => {
   if (isSummarizing.value) return 'summarizing'
   if (isConverting.value) return 'converting'
   if (isRecording.value) return 'recording'
-  if (transcriptionText.value && summaryResult.value) return 'finished'
+  if (transcriptionResult.value && summaryResult.value) return 'finished'
   return 'idle'
 })
 
@@ -525,50 +347,44 @@ const formatTime = (seconds: number): string => {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
 }
 
-const toggleRecording = async (): Promise<void> => {
+const toggleRecording = async () => {
   if (isRecording.value) { stopRecording() } else { await startRecording() }
 }
 
-const startRecording = async (): Promise<void> => {
+const startRecording = async () => {
   try {
     errorMessage.value = ''
     showPermissionInfo.value = false
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, sampleRate: 44100 }
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     })
 
-    masterAudioBlobs.value = []
-    transcriptionText.value = ''
-    let allChunks: Blob[] = []
+    // 볼륨 비주얼라이저 설정
+    setupVisualizer(stream)
 
+    const chunks: Blob[] = []
     mediaRecorder = new MediaRecorder(stream)
-    mediaRecorder.ondataavailable = (event: BlobEvent) => {
-      if (event.data.size > 0) allChunks.push(event.data)
-    }
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data) }
     mediaRecorder.onstop = async () => {
-      // 분리된 트랙 정지
-      stream.getTracks().forEach(track => track.stop())
+      stream.getTracks().forEach(t => t.stop())
+      cleanupVisualizer()
       releaseWakeLock()
       stopSilenceLoop()
-      if (recordingInterval) { window.clearInterval(recordingInterval); recordingInterval = null }
+      if (recordingInterval) { clearInterval(recordingInterval); recordingInterval = null }
       isRecording.value = false
 
-      if (allChunks.length === 0) return
-
-      // 전체 노음을 하나의 Blob으로 합치기
-      const mimeType = mediaRecorder!.mimeType || 'audio/webm'
-      const fullBlob = new Blob(allChunks, { type: mimeType })
-      masterAudioBlobs.value = [fullBlob]
-
-      // 녹음 완료 후 변환 시작
-      await transcribeRecordedAudio(fullBlob)
+      if (chunks.length > 0) {
+        masterAudioBlob.value = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
+        await stt.transcribeAudioChunks(masterAudioBlob.value, selectedModel.value)
+      }
     }
 
     await requestWakeLock()
     startSilenceLoop()
-
-    mediaRecorder.start(1000)
+    
+    stt.resetSTT()
+    mediaRecorder.start()
     isRecording.value = true
     recordingTime.value = 0
     recordingInterval = window.setInterval(() => { recordingTime.value++ }, 1000)
@@ -583,122 +399,94 @@ const startRecording = async (): Promise<void> => {
   }
 }
 
-const stopRecording = (): void => {
+const stopRecording = () => {
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop() // onstop에서 모든 후처리
+    mediaRecorder.stop()
   }
 }
 
-const clearTranscription = (): void => {
-  transcriptionText.value = ''
-  recordingTime.value = 0
-  summaryResult.value = ''
-  summaryError.value = ''
-  masterAudioBlobs.value = []
-  diarizationResult.value = null
-  speakerMap.value = {}
+const setupVisualizer = (stream: MediaStream) => {
+  audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+  analyser = audioContext.createAnalyser()
+  const source = audioContext.createMediaStreamSource(stream)
+  source.connect(analyser)
+  analyser.fftSize = 256
+  
+  const bufferLength = analyser.frequencyBinCount
+  const dataArray = new Uint8Array(bufferLength)
+  
+  const draw = () => {
+    if (!visualizerCanvas.value) return
+    animationFrameId = requestAnimationFrame(draw)
+    analyser?.getByteFrequencyData(dataArray)
+    
+    const canvas = visualizerCanvas.value
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const barWidth = (canvas.width / bufferLength) * 2.5
+    let x = 0
+    
+    for (let i = 0; i < bufferLength; i++) {
+      const barHeight = (dataArray[i] / 255) * canvas.height
+      ctx.fillStyle = `rgb(26, 115, 232)`
+      ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight)
+      x += barWidth + 1
+    }
+  }
+  draw()
 }
 
-const copyToClipboard = async (): Promise<void> => {
+const cleanupVisualizer = () => {
+  if (animationFrameId) cancelAnimationFrame(animationFrameId)
+  if (audioContext) audioContext.close()
+  audioContext = null
+  analyser = null
+}
+
+const requestWakeLock = async () => {
+  if ('wakeLock' in navigator) {
+    try { wakeLock = await (navigator as any).wakeLock.request('screen') } catch (err) {}
+  }
+}
+
+const releaseWakeLock = () => {
+  if (wakeLock) { wakeLock.release().then(() => { wakeLock = null }) }
+}
+
+const startSilenceLoop = () => {
+  const silenceSrc = 'data:audio/wav;base64,UklGRigAAABXQVZFRm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='
+  if (!silenceAudio) { silenceAudio = new Audio(silenceSrc); silenceAudio.loop = true }
+  silenceAudio.play().catch(() => {})
+}
+
+const stopSilenceLoop = () => {
+  if (silenceAudio) { silenceAudio.pause(); silenceAudio.currentTime = 0 }
+}
+
+const clearTranscription = () => {
+  stt.resetSTT()
+  masterAudioBlob.value = null
+  recordingTime.value = 0
+}
+
+const copyToClipboard = async () => {
   try {
-    await navigator.clipboard.writeText(transcriptionText.value)
+    await navigator.clipboard.writeText(transcriptionResult.value)
     alert('클립보드에 복사되었습니다!')
   } catch {
     errorMessage.value = '클립보드 복사에 실패했습니다.'
   }
 }
 
-// 텍스트 정리 (AI 문법 교정)
-const formatTranscription = async (): Promise<void> => {
-  if (!transcriptionText.value) return
-  isSummarizing.value = true
-  summaryError.value = ''
-  diarizationResult.value = null
-  speakerMap.value = {}
-  try {
-    const response = await fetch('/api/summarize/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: transcriptionText.value, mode: 'format' })
-    })
-    if (!response.ok) { const err = await response.json(); throw new Error(err.message || '텍스트 정리 실패') }
-    const data = await response.json()
-    transcriptionText.value = data.summary || transcriptionText.value
-  } catch (error: any) {
-    summaryError.value = error.message || '텍스트 정리에 실패했습니다.'
-  } finally {
-    isSummarizing.value = false
-  }
-}
-
-// 화자 구분
-const diarizeText = async (): Promise<void> => {
-  if (diarizationResult.value) {
-    diarizationResult.value = null
-    speakerMap.value = {}
-    return
-  }
-  if (!transcriptionText.value) return
-  isSummarizing.value = true
-  summaryError.value = ''
-  try {
-    const response = await fetch('/api/summarize/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: transcriptionText.value, mode: 'diarization' })
-    })
-    if (!response.ok) { const err = await response.json(); throw new Error(err.message || '화자 구분 실패') }
-    const data = await response.json()
-    const parsed = JSON.parse(data.summary)
-    if (Array.isArray(parsed)) {
-      diarizationResult.value = parsed
-      speakerMap.value = {}
-    }
-  } catch (error: any) {
-    summaryError.value = error.message || '화자 구분에 실패했습니다.'
-  } finally {
-    isSummarizing.value = false
-  }
-}
-
-const summarizeText = async (mode: 'summary' | 'meeting_minutes' = 'summary'): Promise<void> => {
-  if (!transcriptionText.value) return
-  isSummarizing.value = true
-  summaryError.value = ''
-  summaryResult.value = ''
-  summaryMode.value = mode
-  try {
-    const response = await fetch('/api/summarize/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: transcriptionText.value,
-        mode,
-        attendees: mode === 'meeting_minutes' ? attendeesInput.value : '',
-        date: mode === 'meeting_minutes' ? new Date().toLocaleString('ko-KR') : ''
-      })
-    })
-    if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.message || '요약 생성 실패') }
-    const data = await response.json()
-    summaryResult.value = data.summary || '요약 생성 완료'
-  } catch (error: any) {
-    summaryError.value = error.message || 'AI 요약에 실패했습니다.'
-  } finally {
-    isSummarizing.value = false
-  }
-}
-
-const downloadAudio = () => {
-  if (masterAudioBlobs.value.length === 0) return
-  // Concatenate all tracked chunk blobs
-  const finalBlob = new Blob(masterAudioBlobs.value, { type: 'audio/webm' })
-  const url = URL.createObjectURL(finalBlob)
+const handleDownloadAudio = () => {
+  if (!masterAudioBlob.value) return
+  const url = URL.createObjectURL(masterAudioBlob.value)
   const a = document.createElement('a')
   a.href = url
-  a.download = `녹음음성_${new Date().getTime()}.wav` // .wav extension used globally although internally webm/wav browser dependent
-  document.body.appendChild(a)
+  a.download = `녹음음성_${new Date().getTime()}.wav`
   a.click()
-  document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 
@@ -709,419 +497,144 @@ const downloadSummary = () => {
   const a = document.createElement('a')
   a.href = url
   a.download = `요약_${new Date().getTime()}.txt`
-  document.body.appendChild(a)
   a.click()
-  document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
 
-// PDF 저장 — jsPDF + html2canvas로 파일 직접 다운로드
-const exportToPdf = async () => {
-  if (!parsedMeetingMinutes.value) return
+const handleExportPdf = async () => {
   isExportingPdf.value = true
   try {
-    await nextTick()
-    const element = document.getElementById('meeting-minutes-area-realtime')
-    if (!element) throw new Error('회의록 영역을 찾을 수 없습니다.')
-
-    const { default: html2canvas } = await import('html2canvas')
-    const { jsPDF } = await import('jspdf')
-
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff'
-    })
-
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 15
-    const contentWidth = pageWidth - margin * 2
-    const imgHeight = (canvas.height * contentWidth) / canvas.width
-
-    let y = margin
-    let remainHeight = imgHeight
-    let srcY = 0
-
-    while (remainHeight > 0) {
-      const sliceHeight = Math.min(remainHeight, pageHeight - margin * 2)
-      const sliceCanvas = document.createElement('canvas')
-      sliceCanvas.width = canvas.width
-      sliceCanvas.height = (sliceHeight / contentWidth) * canvas.width
-      const ctx = sliceCanvas.getContext('2d')!
-      ctx.drawImage(canvas, 0, srcY * (canvas.height / imgHeight), canvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height)
-      pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', margin, y, contentWidth, sliceHeight)
-      remainHeight -= sliceHeight
-      srcY += sliceHeight
-      if (remainHeight > 0) { pdf.addPage(); y = margin }
-    }
-
-    pdf.save(`회의록_${new Date().getTime()}.pdf`)
-  } catch (e: any) {
-    alert('PDF 생성에 실패했습니다: ' + (e.message || e))
+    await exportToPdf('meeting_minutes-area-realtime', `회의록_${new Date().getTime()}`)
+  } catch (e) {
+    alert('PDF 생성 실패')
   } finally {
     isExportingPdf.value = false
   }
 }
 
-// Excel 저장 — HTML table → XLS (서식 100% 유지)
-const exportToExcel = () => {
+const handleExportExcel = () => {
   if (!parsedMeetingMinutes.value) return
-  const d = parsedMeetingMinutes.value
-
-  const rows = [
-    { th: '회의 주제', td: d.topic || '' },
-    { th: '회의 일시', td: d.date || '' },
-    { th: '참석자', td: d.attendees || '' },
-    { th: '주요 논의 사항', td: (d.discussions || []).map((s: string) => `• ${s}`).join('\n') },
-    { th: '결정 사항', td: (d.decisions || []).map((s: string) => `• ${s}`).join('\n') },
-    { th: '추후 진행 사항', td: (d.actionItems || []).map((s: string) => `• ${s}`).join('\n') },
-  ]
-
-  const cellStyle = `font-family:Malgun Gothic,Apple SD Gothic Neo,sans-serif;font-size:11pt;vertical-align:top;white-space:pre-wrap;border:1px solid #e0e0e0;padding:8px 12px;`
-  const thStyle = `${cellStyle}background:#E8F0FE;font-weight:bold;color:#202124;width:130px;border-color:#c5c5c5;`
-  const tdStyle = `${cellStyle}background:#ffffff;color:#202124;`
-  const actionTdStyle = `${cellStyle}background:#FFF8E1;color:#5F4C00;`
-  const headerStyle = `font-family:Malgun Gothic,Apple SD Gothic Neo,sans-serif;font-size:14pt;font-weight:bold;background:#1a73e8;color:#ffffff;text-align:center;padding:12px;border:1px solid #1a73e8;`
-
-  const html = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-    <head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>회의록</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>
-    <body>
-      <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-        <tr><td colspan="2" style="${headerStyle}">회의록</td></tr>
-        ${rows.map((row, i) => `<tr>
-          <td style="${thStyle}">${row.th}</td>
-          <td style="${i === 5 ? actionTdStyle : tdStyle}">${row.td.replace(/\n/g, '<br/>')}</td>
-        </tr>`).join('')}
-      </table>
-    </body>
-    </html>`
-
-  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `회의록_${new Date().getTime()}.xls`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  exportToExcel(parsedMeetingMinutes.value, `회의록_${new Date().getTime()}`)
 }
 
-// 메일 보내기 — mailto: 링크로 메일 앱 직접 열기
-const sendEmail = async () => {
+const handleSendEmail = () => {
   if (!summaryResult.value) return
-
-  if (summaryMode.value === 'meeting_minutes' && parsedMeetingMinutes.value) {
-    const d = parsedMeetingMinutes.value
-    const subject = encodeURIComponent(`[회의록] ${d.topic || '회의'}`)
-    const body = encodeURIComponent(
-      `회의 주제: ${d.topic || ''}
-회의 일시: ${d.date || ''}
-참석자: ${d.attendees || ''}
-
-주요 논의 사항:
-${(d.discussions || []).map((s: string) => `• ${s}`).join('\n')}
-
-결정 사항:
-${(d.decisions || []).map((s: string) => `• ${s}`).join('\n')}
-
-추후 진행 사항:
-${(d.actionItems || []).map((s: string) => `• ${s}`).join('\n')}`
-    )
-    window.location.href = `mailto:?subject=${subject}&body=${body}`
-  } else {
-    // 일반 요약 — mailto로 열기
-    const subject = encodeURIComponent('[AI 요약] 회의 내용')
-    const body = encodeURIComponent(summaryResult.value)
-    window.location.href = `mailto:?subject=${subject}&body=${body}`
-  }
+  const subject = summaryMode.value === 'meeting_minutes' ? '[회의록] 회의 결과' : '[AI 요약] 회의 내용'
+  sendEmail(subject, summaryResult.value)
 }
 
 onUnmounted(() => {
-  if (isRecording.value) { stopRecording() }
-  if (recordingInterval) { clearInterval(recordingInterval) }
+  cleanupVisualizer()
+  releaseWakeLock()
+  stopSilenceLoop()
+  if (recordingInterval) clearInterval(recordingInterval)
 })
 </script>
 
 <style lang="scss" scoped>
-/* Google Material Design */
-.realtime-stt {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
+.realtime-stt { display: flex; flex-direction: column; align-items: center; gap: 24px; padding: 12px 0; }
 
+.record-control { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
 
-
-.record-control {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-  &__hint { font-size: 13px; color: #5f6368; margin: 0; }
-}
+.volume-visualizer { width: 200px; height: 40px; background: #f8f9fa; border-radius: 4px; overflow: hidden; canvas { width: 100%; height: 100%; } }
 
 .model-select {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  max-width: 320px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; max-width: 320px;
   &__label { font-size: 12px; font-weight: 500; color: #5f6368; letter-spacing: 0.3px; }
-  &__input {
-    width: 100%;
-    padding: 10px 14px;
-    border-radius: 4px;
-    border: 1px solid #dadce0;
-    background-color: #ffffff;
-    font-size: 14px;
-    color: #202124;
-    outline: none;
-    transition: border-color 0.2s ease, box-shadow 0.15s ease;
-    &:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15); }
-    &:disabled { background-color: #f8f9fa; color: #80868b; cursor: not-allowed; }
-  }
+  &__input { width: 100%; padding: 10px 14px; border-radius: 4px; border: 1px solid #dadce0; background-color: #ffffff; font-size: 14px; color: #202124; outline: none; transition: border-color 0.2s ease, box-shadow 0.15s ease; &:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15); } &:disabled { background-color: #f8f9fa; color: #80868b; cursor: not-allowed; } }
 }
 
 .record-btn {
-  position: relative;
-  padding: 28px;
-  border-radius: 50%;
-  transition: all 0.2s ease;
-  border: none;
-  cursor: pointer;
-  &:hover { transform: scale(1.05); }
-  &--idle { background-color: #4285F4; box-shadow: 0 4px 12px rgba(66, 133, 244, 0.4); &:hover { background-color: #1557b0; } }
-  &--recording { background-color: #EA4335; box-shadow: 0 4px 12px rgba(234, 67, 53, 0.4); &:hover { background-color: #c5221f; } }
-  &--disabled { opacity: 0.5; cursor: not-allowed; &:hover { transform: none; } }
-  &__icon { height: 48px; width: 48px; color: #ffffff; }
+  width: 72px; height: 72px; border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  &__icon { width: 32px; height: 32px; }
+  &--idle { background-color: #1a73e8; color: #ffffff; &:hover { background-color: #1557b0; transform: scale(1.05); } }
+  &--recording { background-color: #ea4335; color: #ffffff; animation: pulse 1.5s infinite; &:hover { background-color: #d33426; } }
+  &--disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
 }
 
-.record-timer {
-  text-align: center;
-  &__text { font-size: 24px; font-family: 'Google Sans', Roboto, monospace; font-weight: 400; color: #202124; margin: 0; letter-spacing: 2px; }
-}
+@keyframes pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.4); } 70% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(234, 67, 53, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); } }
+
+.record-timer { &__text { font-size: 24px; font-weight: 700; color: #202124; font-variant-numeric: tabular-nums; } }
 
 .result-box {
-  background-color: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e8eaed;
-  padding: 20px 24px;
-
-  &__title { font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; display: flex; align-items: center; letter-spacing: 0.1px; }
-  &__icon { height: 20px; width: 20px; color: #4285F4; margin-right: 8px; }
-
-  &__content {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    border: 1px solid #e8eaed;
-    padding: 16px;
-    min-height: 200px;
-    max-height: 400px;
-    overflow-y: auto;
-  }
-
-  &__actions {
-    margin-top: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-
-  &__main-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
+  width: 100%; background-color: #ffffff; border-radius: 12px; border: 1px solid #e8eaed; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  &__title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; }
+  &__icon { width: 20px; height: 20px; color: #1a73e8; }
+  &__content { background-color: #f8f9fa; border-radius: 8px; padding: 20px; min-height: 120px; max-height: 500px; overflow-y: auto; border: 1px solid #f1f3f4; }
+  &__actions { margin-top: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  &__main-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 }
 
-/* 문단 분리 */
 .transcription-paragraphs { display: flex; flex-direction: column; gap: 12px; }
+.transcription-para { color: #202124; line-height: 1.75; font-size: 14px; margin: 0; padding-bottom: 12px; border-bottom: 1px solid #e8eaed; &:last-child { border-bottom: none; padding-bottom: 0; } }
 
-.transcription-para {
-  color: #202124;
-  line-height: 1.75;
-  letter-spacing: 0.01em;
-  font-size: 14px;
-  margin: 0;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e8eaed;
-  &:last-child { border-bottom: none; padding-bottom: 0; }
-}
-
-/* 화자 구분 */
 .diarization-view { display: flex; flex-direction: column; gap: 10px; }
-
 .diarization-segment {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 16px;
-  border-radius: 4px;
-  border-left: 3px solid;
-
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 4px; border-left: 3px solid;
   &--0 { background-color: #e8f0fe; border-left-color: #4285F4; .diarization-segment__speaker { color: #1557b0; } }
   &--1 { background-color: #e6f4ea; border-left-color: #34A853; .diarization-segment__speaker { color: #137333; } }
   &--2 { background-color: #fef7e0; border-left-color: #FBBC04; .diarization-segment__speaker { color: #e37400; } }
   &--3 { background-color: #fce8e6; border-left-color: #EA4335; .diarization-segment__speaker { color: #c5221f; } }
   &--4 { background-color: #f3e8fd; border-left-color: #9334E6; .diarization-segment__speaker { color: #7627bb; } }
-
-  &__speaker { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+  &__speaker { font-size: 11px; font-weight: 600; text-transform: uppercase; }
   &__text { color: #202124; line-height: 1.65; margin: 0; font-size: 14px; }
 }
 
-.loading-dots {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 128px;
-  gap: 8px;
-  &__dot {
-    width: 12px;
-    height: 12px;
-    background-color: #4285F4;
-    border-radius: 50%;
-    animation: bounce 1s infinite;
-    &--1 { animation-delay: 0ms; }
-    &--2 { animation-delay: 150ms; }
-    &--3 { animation-delay: 300ms; }
-  }
-}
-
-.btn-clear { padding: 7px 16px; font-size: 13px; font-weight: 500; color: #5f6368; background: none; border: none; cursor: pointer; transition: color 0.15s ease; &:hover { color: #202124; } }
-
-.meeting-minutes-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background-color: #f8f9fa;
-  padding: 3px 3px 3px 12px;
-  border-radius: 4px;
-  border: 1px solid #dadce0;
-  transition: border-color 0.15s ease;
-  &:focus-within { border-color: #1a73e8; }
-  .attendees-input {
-    border: none;
-    background: transparent;
-    font-size: 13px;
-    color: #202124;
-    outline: none;
-    width: 150px;
-    &::placeholder { color: #80868b; }
-    &:disabled { cursor: not-allowed; opacity: 0.7; }
-  }
-}
-
-.btn-format {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 500;
-  color: #1a73e8; background-color: transparent; border: 1px solid #dadce0;
-  cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease;
-  &:hover { background-color: #e8f0fe; border-color: #1a73e8; }
-  &--disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
-.btn-diarize {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 500;
-  color: #34A853; background-color: transparent; border: 1px solid #dadce0;
-  cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease;
-  &:hover { background-color: #e6f4ea; border-color: #34A853; }
-  &--disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
+.btn-format, .btn-diarize { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 500; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; transition: all 0.15s ease; &:disabled { opacity: 0.5; cursor: not-allowed; } }
+.btn-format { color: #1a73e8; &:hover { background-color: #e8f0fe; border-color: #1a73e8; } }
+.btn-diarize { color: #34A853; &:hover { background-color: #e6f4ea; border-color: #34A853; } }
 .btn-icon { width: 16px; height: 16px; flex-shrink: 0; }
 
-.btn-primary {
-  padding: 7px 16px; font-size: 13px; font-weight: 500; letter-spacing: 0.25px;
-  border-radius: 4px; background-color: #34A853; color: #ffffff; border: none; cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
-  &:hover { background-color: #2d8f47; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
-  &--dark { background-color: #1a73e8; &:hover { background-color: #1557b0; } }
-  &--disabled { background-color: #dadce0; color: #80868b; cursor: not-allowed; box-shadow: none; &:hover { background-color: #dadce0; } }
+.meeting-minutes-wrapper {
+  display: flex; align-items: center; gap: 6px; background-color: #f8f9fa; padding: 3px 3px 3px 12px; border-radius: 4px; border: 1px solid #dadce0;
+  .attendees-input { border: none; background: transparent; font-size: 13px; color: #202124; outline: none; width: 150px; &::placeholder { color: #80868b; } }
 }
 
-.btn-secondary {
-  padding: 7px 16px; font-size: 13px; font-weight: 500;
-  color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; border-radius: 4px;
-  cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease;
-  &:hover { background-color: #e8f0fe; border-color: #1a73e8; }
+.btn-primary {
+  padding: 7px 16px; font-size: 13px; font-weight: 500; border-radius: 4px; background-color: #34A853; color: #ffffff; border: none; cursor: pointer;
+  &:hover { background-color: #2d8f47; }
+  &--dark { background-color: #1a73e8; &:hover { background-color: #1557b0; } }
+  &--disabled { background-color: #dadce0; color: #80868b; cursor: not-allowed; }
 }
+
+.btn-secondary, .btn-clear { padding: 7px 16px; font-size: 13px; font-weight: 500; border-radius: 4px; cursor: pointer; transition: all 0.15s ease; }
+.btn-secondary { color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; &:hover { background-color: #f8f9fa; border-color: #1a73e8; } }
+.btn-clear { color: #5f6368; background-color: transparent; border: 1px solid #dadce0; &:hover { background-color: #f1f3f4; } }
 
 .summary-card {
-  background-color: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e8eaed;
-  border-top: 3px solid #1a73e8;
-  padding: 20px 24px;
-
-  &__title { font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; display: flex; align-items: center; letter-spacing: 0.1px; }
-  &__icon { width: 20px; height: 20px; margin-right: 8px; color: #1a73e8; }
-  &__content {
-    background-color: #ffffff;
-    border-radius: 4px;
-    padding: 0;
-    line-height: 1.625;
-    :deep(strong) { color: #1a73e8; font-weight: 600; }
-  }
-  &__actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; flex-wrap: wrap; }
+  width: 100%; background-color: #ffffff; border-radius: 12px; border: 1px solid #e8eaed; border-top: 4px solid #1a73e8; padding: 24px;
+  &__title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; }
+  &__icon { width: 20px; height: 20px; color: #1a73e8; }
+  &__content { font-size: 14px; line-height: 1.6; :deep(strong) { color: #1a73e8; } }
+  &__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 }
 
-.btn-action {
-  display: flex; align-items: center; gap: 6px;
-  padding: 7px 16px; border-radius: 4px; font-size: 13px; font-weight: 500; letter-spacing: 0.25px;
-  color: #1a73e8; background-color: transparent; border: 1px solid #dadce0;
-  cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease;
-  &:hover { background-color: #e8f0fe; border-color: #1a73e8; }
-  &:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
-  &__icon { width: 16px; height: 16px; }
-}
+.btn-action { display: flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 4px; font-size: 13px; font-weight: 500; color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; &:hover { background-color: #f8f9fa; } &:disabled { opacity: 0.5; } }
 
-.meeting-table-wrapper { overflow-x: auto; }
-
+.meeting-table-wrapper { overflow-x: auto; margin-top: 12px; }
 .meeting-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-  text-align: left;
-  border: 1px solid #e8eaed;
-  border-radius: 4px;
-  overflow: hidden;
-  th, td { padding: 14px 16px; border-bottom: 1px solid #e8eaed; }
-  th { background-color: #e8f0fe; font-weight: 600; color: #1557b0; width: 22%; border-right: 1px solid #e8eaed; vertical-align: top; font-size: 13px; letter-spacing: 0.1px; }
-  td { color: #202124; vertical-align: top; line-height: 1.6; }
-  ul { margin: 0; padding-left: 18px; li { margin-bottom: 4px; &:last-child { margin-bottom: 0; } } }
-  tr:last-child th, tr:last-child td { border-bottom: none; }
-  .action-items-row th { color: #e37400; background-color: #fef7e0; }
+  width: 100%; border-collapse: collapse; border: 1px solid #e8eaed;
+  th, td { padding: 14px; border-bottom: 1px solid #e8eaed; font-size: 14px; }
+  th { background-color: #f8f9fa; color: #5f6368; width: 120px; text-align: left; vertical-align: top; }
+  td { color: #202124; }
+  .action-items-row th { background-color: #fef7e0; color: #e37400; }
 }
 
 .alert {
-  border-radius: 4px;
-  padding: 12px 16px;
-  border: 1px solid transparent;
-  &__content { display: flex; align-items: center; }
-  &__icon { height: 20px; width: 20px; flex-shrink: 0; }
-  &__message { margin: 0 0 0 12px; font-size: 14px; }
-  &--info { background-color: #e8f0fe; border-color: #c5d9f9; .alert__icon { color: #4285F4; } .alert__message { color: #1557b0; } }
-  &--warning { background-color: #fef7e0; border-color: #fdd663; .alert__icon { color: #FBBC04; } .alert__message { color: #e37400; } }
-  &--error { background-color: #fce8e6; border-color: #f5c6c6; .alert__icon { color: #EA4335; } .alert__message { color: #c5221f; } }
+  width: 100%; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+  &--info { background-color: #e8f0fe; color: #1a73e8; border: 1px solid #d2e3fc; }
+  &--warning { background-color: #fef7e0; color: #e37400; border: 1px solid #feefc3; }
+  &--error { background-color: #fce8e6; color: #d93025; border: 1px solid #fad2cf; }
+  &__icon { width: 20px; height: 20px; flex-shrink: 0; }
+  &__message { margin: 0; font-size: 14px; }
 }
 
-@keyframes ping {
-  75%, 100% { transform: scale(2); opacity: 0; }
+.loading-dots {
+  display: flex; justify-content: center; gap: 4px; padding: 20px 0;
+  &__dot {
+    width: 8px; height: 8px; background-color: #dadce0; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out;
+    &--1 { animation-delay: -0.32s; } &--2 { animation-delay: -0.16s; }
+  }
 }
-
-@keyframes bounce {
-  0%, 100% { transform: translateY(-25%); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); }
-  50% { transform: none; animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
-}
+@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
 </style>
-

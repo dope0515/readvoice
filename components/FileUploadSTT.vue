@@ -109,17 +109,15 @@
       <div class="result-card__actions">
         <button @click="copyToClipboard" class="btn-secondary">복사</button>
         <div class="result-card__main-actions">
-          <!-- 텍스트 정리 버튼 -->
           <button
-            @click="formatTranscription"
+            @click="stt.formatText(transcriptionResult)"
             :disabled="isSummarizing"
             :class="['btn-format', { 'btn-format--disabled': isSummarizing }]"
           >
             텍스트 정리
           </button>
-          <!-- 화자 구분 버튼 -->
           <button
-            @click="diarizeText"
+            @click="stt.diarize(transcriptionResult)"
             :disabled="isSummarizing"
             :class="['btn-diarize', { 'btn-diarize--disabled': isSummarizing }]"
           >
@@ -131,7 +129,7 @@
           </button>
 
           <button
-            @click="summarizeText('summary')"
+            @click="stt.summarize(transcriptionResult, 'summary')"
             :disabled="isSummarizing"
             :class="['btn-primary', { 'btn-primary--disabled': isSummarizing }]"
           >
@@ -147,7 +145,7 @@
               :disabled="isSummarizing"
             />
             <button
-              @click="summarizeText('meeting_minutes')"
+              @click="stt.summarize(transcriptionResult, 'meeting_minutes', attendeesInput)"
               :disabled="isSummarizing"
               :class="['btn-primary btn-primary--dark', { 'btn-primary--disabled': isSummarizing }]"
             >
@@ -168,10 +166,8 @@
         {{ summaryMode === 'meeting_minutes' ? '회의록 결과' : 'AI 요약 결과' }}
       </h3>
       
-      <!-- 일반 요약 -->
       <div v-if="summaryMode === 'summary'" class="summary-card__content" v-html="formattedSummaryResult"></div>
       
-      <!-- 회의록 테이블 -->
       <div v-if="summaryMode === 'meeting_minutes' && parsedMeetingMinutes" class="summary-card__content meeting-table-wrapper" id="meeting-minutes-area">
         <table class="meeting-table">
           <tbody>
@@ -216,11 +212,11 @@
       </div>
 
       <div class="summary-card__actions">
-        <button v-if="summaryMode === 'meeting_minutes'" @click="exportToPdf" class="btn-action" :disabled="isExportingPdf">
+        <button v-if="summaryMode === 'meeting_minutes'" @click="handleExportPdf" class="btn-action" :disabled="isExportingPdf">
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
           {{ isExportingPdf ? 'PDF 생성 중...' : 'PDF 저장' }}
         </button>
-        <button v-if="summaryMode === 'meeting_minutes'" @click="exportToExcel" class="btn-action">
+        <button v-if="summaryMode === 'meeting_minutes'" @click="handleExportExcel" class="btn-action">
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
           EXCEL 저장
         </button>
@@ -228,7 +224,7 @@
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
           TXT 저장
         </button>
-        <button @click="sendEmail" class="btn-action">
+        <button @click="handleSendEmail" class="btn-action">
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
           메일 보내기
         </button>
@@ -263,66 +259,44 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed } from 'vue'
 import StatusAnimation from './StatusAnimation.vue'
-
-interface APIResponse {
-  success: boolean
-  text?: string
-  transcriptionId?: string
-  usedMinutes?: number
-  remainingMinutes?: number
-  isLocked?: boolean
-}
-
-interface DiarizationSegment {
-  speaker: string
-  text: string
-}
+import { useSTT } from '~/composables/useSTT'
+import { formatFileSize } from '~/utils/audio'
+import { exportToPdf, exportToExcel, sendEmail } from '~/utils/export'
 
 const ALLOWED_EXTENSIONS = ['.wav', '.mp3', '.m4a', '.flac', '.ogg']
-const ALLOWED_MIME_TYPES = [
-  'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/mpeg', 'audio/mp3',
-  'audio/mp4', 'audio/x-m4a', 'audio/flac', 'audio/ogg', 'audio/vorbis'
-]
-const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100MB limit (대용량 청킹 지원)
+const MAX_FILE_SIZE = 100 * 1024 * 1024
 
 const isDragging = ref(false)
 const selectedFile = ref<File | null>(null)
-const isConverting = ref(false)
-const transcriptionResult = ref('')
-const errorMessage = ref('')
-const isSummarizing = ref(false)
-const summaryResult = ref('')
-const summaryError = ref('')
 const selectedModel = ref('whisper-large-v3')
-const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 const attendeesInput = ref('')
-const diarizationResult = ref<DiarizationSegment[] | null>(null)
 const isExportingPdf = ref(false)
+const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 
-const totalChunks = ref(0)
-const processedChunks = ref(0)
+const stt = useSTT()
+const {
+  isConverting,
+  isSummarizing,
+  transcriptionResult,
+  summaryResult,
+  summaryError,
+  diarizationResult,
+  totalChunks,
+  processedChunks,
+  getSpeakerIndex
+} = stt
 
-// 화자 인덱스 (0~4) → 색상 클래스
-const speakerMap = ref<Record<string, number>>({})
-const getSpeakerIndex = (speaker: string): number => {
-  if (!(speaker in speakerMap.value)) {
-    const idx = Object.keys(speakerMap.value).length % 5
-    speakerMap.value[speaker] = idx
-  }
-  return speakerMap.value[speaker]
-}
+const errorMessage = ref('')
 
 // STT 텍스트를 문단 단위로 나누기
 const formattedTranscriptionParagraphs = computed(() => {
   if (!transcriptionResult.value) return []
   const text = transcriptionResult.value.trim()
-  // 이미 줄바꿈이 있으면 그것을 기준으로 분리, 없으면 문장 단위로 분리
   if (text.includes('\n\n')) {
     return text.split('\n\n').filter(p => p.trim())
   }
-  // 문장 단위 (마침표/느낌표/물음표 뒤 공백)로 4~5문장씩 묶어서 문단 분리
   const sentences = text.match(/[^.!?。]+[.!?。]+\s*/g) || [text]
   const chunkSize = 3
   const paragraphs: string[] = []
@@ -333,18 +307,22 @@ const formattedTranscriptionParagraphs = computed(() => {
 })
 
 const parsedMeetingMinutes = computed(() => {
-  if (summaryMode.value === 'meeting_minutes' && summaryResult.value) {
+  if (summaryResult.value) {
     try {
-      return JSON.parse(summaryResult.value)
-    } catch (e) {
-      return null
+      const parsed = JSON.parse(summaryResult.value)
+      if (parsed.topic) {
+        summaryMode.value = 'meeting_minutes'
+        return parsed
+      }
+    } catch {
+      summaryMode.value = 'summary'
     }
   }
   return null
 })
 
 const formattedSummaryResult = computed(() => {
-  if (!summaryResult.value) return ''
+  if (!summaryResult.value || summaryMode.value === 'meeting_minutes') return ''
   let html = summaryResult.value.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
   html = html.replace(/\n/g, '<br>')
   return `<div class="formatted-text">${html}</div>`
@@ -359,27 +337,14 @@ const currentStatus = computed(() => {
 
 const isValidAudioFile = (file: File): boolean => {
   const fileName = file.name.toLowerCase()
-  const hasValidExtension = ALLOWED_EXTENSIONS.some(ext => fileName.endsWith(ext))
-  const hasValidMimeType = ALLOWED_MIME_TYPES.includes(file.type.toLowerCase())
-  if (file.type.toLowerCase().startsWith('video/')) return false
-  return hasValidExtension || hasValidMimeType
+  return ALLOWED_EXTENSIONS.some(ext => fileName.endsWith(ext))
 }
 
 const handleDrop = (e: DragEvent) => {
   isDragging.value = false
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
-    const file = files[0]
-    if (!isValidAudioFile(file)) {
-      errorMessage.value = '지원하지 않는 파일 형식입니다. WAV, MP3, M4A, FLAC, OGG 파일만 업로드 가능합니다.'
-      selectedFile.value = null
-    } else if (file.size > MAX_FILE_SIZE) {
-      errorMessage.value = '파일 크기는 100MB를 초과할 수 없습니다.'
-      selectedFile.value = null
-    } else {
-      selectedFile.value = file
-      errorMessage.value = ''
-    }
+    processSelectedFile(files[0])
   }
 }
 
@@ -387,173 +352,42 @@ const handleFileSelect = (e: Event) => {
   const target = e.target as HTMLInputElement
   const files = target.files
   if (files && files.length > 0) {
-    const file = files[0]
-    if (!isValidAudioFile(file)) {
-      errorMessage.value = '지원하지 않는 파일 형식입니다. WAV, MP3, M4A, FLAC, OGG 파일만 업로드 가능합니다.'
-      selectedFile.value = null
-    } else if (file.size > MAX_FILE_SIZE) {
-      errorMessage.value = '파일 크기는 100MB를 초과할 수 없습니다.'
-      selectedFile.value = null
-    } else {
-      selectedFile.value = file
-      errorMessage.value = ''
-    }
+    processSelectedFile(files[0])
     target.value = ''
+  }
+}
+
+const processSelectedFile = (file: File) => {
+  if (!isValidAudioFile(file)) {
+    errorMessage.value = '지원하지 않는 파일 형식입니다.'
+    selectedFile.value = null
+  } else if (file.size > MAX_FILE_SIZE) {
+    errorMessage.value = '파일 크기는 100MB를 초과할 수 없습니다.'
+    selectedFile.value = null
+  } else {
+    selectedFile.value = file
+    errorMessage.value = ''
+    stt.resetSTT()
   }
 }
 
 const removeFile = () => {
   selectedFile.value = null
-  transcriptionResult.value = ''
+  stt.resetSTT()
   errorMessage.value = ''
-  summaryResult.value = ''
-  summaryError.value = ''
-  diarizationResult.value = null
-  speakerMap.value = {}
 }
 
-const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 Bytes'
-  const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
-}
-
-// 다운샘플링 유틸리티 (필요한 경우)
-const downsampleBuffer = (buffer: any, originalRate: number, targetRate: number) => {
-  if (targetRate === originalRate) return buffer
-  const sampleRateRatio = originalRate / targetRate
-  const newLength = Math.round(buffer.length / sampleRateRatio)
-  const result = new Float32Array(newLength)
-  let offsetResult = 0
-  let offsetBuffer = 0
-  while (offsetResult < result.length) {
-    const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio)
-    let accum = 0, count = 0
-    for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
-        accum += buffer[i]
-        count++
-    }
-    result[offsetResult] = accum / count
-    offsetResult++
-    offsetBuffer = nextOffsetBuffer
-  }
-  return result
-}
-
-const encodeFloat32ToWavBlob = (samples: any, sampleRate: number): Blob => {
-  const buffer = new ArrayBuffer(44 + samples.length * 2)
-  const view = new DataView(buffer)
-
-  const writeString = (view: DataView, offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++){
-      view.setUint8(offset + i, string.charCodeAt(i))
-    }
-  }
-
-  writeString(view, 0, 'RIFF')
-  view.setUint32(4, 36 + samples.length * 2, true)
-  writeString(view, 8, 'WAVE')
-  writeString(view, 12, 'fmt ')
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true) // Mono
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  writeString(view, 36, 'data')
-  view.setUint32(40, samples.length * 2, true)
-
-  let offset = 44
-  for (let i = 0; i < samples.length; i++, offset += 2) {
-    let s = Math.max(-1, Math.min(1, samples[i]))
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true)
-  }
-
-  return new Blob([view], { type: 'audio/wav' })
-}
-
-const uploadChunk = async (blob: Blob, index: number, contextPrompt: string = ''): Promise<string> => {
-  const formData = new FormData()
-  formData.append('file', blob, `chunk_${index}.wav`)
-  formData.append('model', selectedModel.value)
-  if (contextPrompt) formData.append('contextPrompt', contextPrompt)
-  
-  const response = await $fetch<APIResponse>('/api/stt/upload', {
-    method: 'POST',
-    body: formData
-  } as any)
-  
-  if (response.success && response.text) {
-    return response.text.trim()
-  } else {
-    throw new Error('변환 결과를 받지 못했습니다.')
-  }
-}
-
-const convertToText = async (): Promise<void> => {
+const convertToText = async () => {
   if (!selectedFile.value) return
-  isConverting.value = true
-  errorMessage.value = ''
-  transcriptionResult.value = ''
-  diarizationResult.value = null
-  speakerMap.value = {}
-  totalChunks.value = 0
-  processedChunks.value = 0
-  
   try {
-    // 1. 파일을 ArrayBuffer로 읽기
-    const arrayBuffer = await selectedFile.value.arrayBuffer()
-    
-    // 2. 브라우저 AudioContext로 디코딩
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-    
-    // 3. 다운샘플링 (API 용량 절약 및 최적화, 16kHz 모노)
-    const TARGET_SAMPLE_RATE = 16000
-    // 첫 번째 채널 데이터만 사용 (모노)
-    let channelData = audioBuffer.getChannelData(0)
-    
-    if (audioBuffer.sampleRate !== TARGET_SAMPLE_RATE) {
-      channelData = downsampleBuffer(channelData, audioBuffer.sampleRate, TARGET_SAMPLE_RATE)
-    }
-
-    // 4. 청크 분할 (30초 — 짧을수록 Whisper 정확도 향상)
-    const CHUNK_DURATION_SEC = 30
-    const samplesPerChunk = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC
-    
-    const chunks: any[] = []
-    for (let i = 0; i < channelData.length; i += samplesPerChunk) {
-      const end = Math.min(i + samplesPerChunk, channelData.length)
-      chunks.push(channelData.slice(i, end))
-    }
-    
-    totalChunks.value = chunks.length
-    processedChunks.value = 0
-    let fullTranscription = ''
-
-    // 5. 청크 순서대로 인코딩 후 전송 (이전 텍스트를 context로 전달)
-    for (let i = 0; i < chunks.length; i++) {
-      const wavBlob = encodeFloat32ToWavBlob(chunks[i], TARGET_SAMPLE_RATE)
-      const chunkText = await uploadChunk(wavBlob, i, fullTranscription)
-      
-      fullTranscription += (fullTranscription ? '\n\n' : '') + chunkText
-      processedChunks.value = i + 1
-    }
-
-    transcriptionResult.value = fullTranscription
-
+    errorMessage.value = ''
+    await stt.transcribeAudioChunks(selectedFile.value, selectedModel.value)
   } catch (error: any) {
-    console.error('STT Conversion Error:', error)
-    errorMessage.value = error.data?.message || error.message || '파일 변환 중 오류가 발생했습니다. 파일이 너무 크거나 브라우저 메모리가 부족할 수 있습니다.'
-  } finally {
-    isConverting.value = false
+    errorMessage.value = error.message || '파일 변환 중 오류가 발생했습니다.'
   }
 }
 
-const copyToClipboard = async (): Promise<void> => {
+const copyToClipboard = async () => {
   try {
     await navigator.clipboard.writeText(transcriptionResult.value)
     alert('클립보드에 복사되었습니다!')
@@ -562,97 +396,26 @@ const copyToClipboard = async (): Promise<void> => {
   }
 }
 
-// 텍스트 정리 (AI 문법 교정)
-const formatTranscription = async (): Promise<void> => {
-  if (!transcriptionResult.value) return
-  isSummarizing.value = true
-  summaryError.value = ''
-  diarizationResult.value = null
-  speakerMap.value = {}
-
+const handleExportPdf = async () => {
+  isExportingPdf.value = true
   try {
-    const response = await fetch('/api/summarize/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: transcriptionResult.value, mode: 'format' })
-    })
-    if (!response.ok) {
-      const err = await response.json()
-      throw new Error(err.message || '텍스트 정리 실패')
-    }
-    const data = await response.json()
-    transcriptionResult.value = data.summary || transcriptionResult.value
-  } catch (error: any) {
-    summaryError.value = error.message || '텍스트 정리에 실패했습니다.'
+    await exportToPdf('meeting_minutes-area', `회의록_${new Date().getTime()}`)
+  } catch (e) {
+    alert('PDF 생성 실패')
   } finally {
-    isSummarizing.value = false
+    isExportingPdf.value = false
   }
 }
 
-// 화자 구분
-const diarizeText = async (): Promise<void> => {
-  // 이미 화자 구분 상태면 초기화
-  if (diarizationResult.value) {
-    diarizationResult.value = null
-    speakerMap.value = {}
-    return
-  }
-  if (!transcriptionResult.value) return
-  isSummarizing.value = true
-  summaryError.value = ''
-
-  try {
-    const response = await fetch('/api/summarize/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: transcriptionResult.value, mode: 'diarization' })
-    })
-    if (!response.ok) {
-      const err = await response.json()
-      throw new Error(err.message || '화자 구분 실패')
-    }
-    const data = await response.json()
-    const parsed = JSON.parse(data.summary)
-    if (Array.isArray(parsed)) {
-      diarizationResult.value = parsed
-      speakerMap.value = {}
-    }
-  } catch (error: any) {
-    summaryError.value = error.message || '화자 구분에 실패했습니다.'
-  } finally {
-    isSummarizing.value = false
-  }
+const handleExportExcel = () => {
+  if (!parsedMeetingMinutes.value) return
+  exportToExcel(parsedMeetingMinutes.value, `회의록_${new Date().getTime()}`)
 }
 
-const summarizeText = async (mode: 'summary' | 'meeting_minutes' = 'summary'): Promise<void> => {
-  if (!transcriptionResult.value) return
-  isSummarizing.value = true
-  summaryError.value = ''
-  summaryResult.value = ''
-  summaryMode.value = mode
-  
-  try {
-    const response = await fetch('/api/summarize/text', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: transcriptionResult.value,
-        mode,
-        attendees: mode === 'meeting_minutes' ? attendeesInput.value : '',
-        date: mode === 'meeting_minutes' ? new Date().toLocaleString('ko-KR') : ''
-      })
-    })
-    if (!response.ok) {
-      const errorData = await response.json()
-      throw new Error(errorData.message || '요약 생성 실패')
-    }
-    const data = await response.json()
-    summaryResult.value = data.summary || '요약 생성 완료'
-  } catch (error: any) {
-    summaryError.value = error.message || 'AI 요약에 실패했습니다.'
-  } finally {
-    isSummarizing.value = false
-  }
+const handleSendEmail = () => {
+  if (!summaryResult.value) return
+  const subject = summaryMode.value === 'meeting_minutes' ? '[회의록] 회의 결과' : '[AI 요약] 회의 내용'
+  sendEmail(subject, summaryResult.value)
 }
 
 const downloadSummary = () => {
@@ -662,199 +425,25 @@ const downloadSummary = () => {
   const a = document.createElement('a')
   a.href = url
   a.download = `요약_${new Date().getTime()}.txt`
-  document.body.appendChild(a)
   a.click()
-  document.body.removeChild(a)
   URL.revokeObjectURL(url)
-}
-
-// PDF 저장 — jsPDF + html2canvas로 파일 직접 다운로드
-const exportToPdf = async () => {
-  if (!parsedMeetingMinutes.value) return
-  isExportingPdf.value = true
-  try {
-    await nextTick()
-    const element = document.getElementById('meeting-minutes-area')
-    if (!element) throw new Error('회의록 영역을 찾을 수 없습니다.')
-
-    const { default: html2canvas } = await import('html2canvas')
-    const { jsPDF } = await import('jspdf')
-
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#ffffff'
-    })
-
-    const imgData = canvas.toDataURL('image/png')
-    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 15
-    const contentWidth = pageWidth - margin * 2
-    const imgHeight = (canvas.height * contentWidth) / canvas.width
-
-    let y = margin
-    let remainHeight = imgHeight
-    let srcY = 0
-
-    while (remainHeight > 0) {
-      const sliceHeight = Math.min(remainHeight, pageHeight - margin * 2)
-      const sliceCanvas = document.createElement('canvas')
-      sliceCanvas.width = canvas.width
-      sliceCanvas.height = (sliceHeight / contentWidth) * canvas.width
-      const ctx = sliceCanvas.getContext('2d')!
-      ctx.drawImage(canvas, 0, srcY * (canvas.height / imgHeight), canvas.width, sliceCanvas.height, 0, 0, sliceCanvas.width, sliceCanvas.height)
-      pdf.addImage(sliceCanvas.toDataURL('image/png'), 'PNG', margin, y, contentWidth, sliceHeight)
-      remainHeight -= sliceHeight
-      srcY += sliceHeight
-      if (remainHeight > 0) { pdf.addPage(); y = margin }
-    }
-
-    pdf.save(`회의록_${new Date().getTime()}.pdf`)
-  } catch (e: any) {
-    alert('PDF 생성에 실패했습니다: ' + (e.message || e))
-  } finally {
-    isExportingPdf.value = false
-  }
-}
-
-// Excel 저장 — HTML table → XLS (서식 100% 유지)
-const exportToExcel = () => {
-  if (!parsedMeetingMinutes.value) return
-  const d = parsedMeetingMinutes.value
-
-  const rows = [
-    { th: '회의 주제', td: d.topic || '' },
-    { th: '회의 일시', td: d.date || '' },
-    { th: '참석자', td: d.attendees || '' },
-    { th: '주요 논의 사항', td: (d.discussions || []).map((s: string) => `• ${s}`).join('\n') },
-    { th: '결정 사항', td: (d.decisions || []).map((s: string) => `• ${s}`).join('\n') },
-    { th: '추후 진행 사항', td: (d.actionItems || []).map((s: string) => `• ${s}`).join('\n') },
-  ]
-
-  const cellStyle = `font-family:Malgun Gothic,Apple SD Gothic Neo,sans-serif;font-size:11pt;vertical-align:top;white-space:pre-wrap;border:1px solid #e0e0e0;padding:8px 12px;`
-  const thStyle = `${cellStyle}background:#E8F0FE;font-weight:bold;color:#202124;width:130px;border-color:#c5c5c5;`
-  const tdStyle = `${cellStyle}background:#ffffff;color:#202124;`
-  const actionTdStyle = `${cellStyle}background:#FFF8E1;color:#5F4C00;`
-  const headerStyle = `font-family:Malgun Gothic,Apple SD Gothic Neo,sans-serif;font-size:14pt;font-weight:bold;background:#1a73e8;color:#ffffff;text-align:center;padding:12px;border:1px solid #1a73e8;`
-
-  const html = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-    <head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>회의록</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>
-    <body>
-      <table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-        <tr><td colspan="2" style="${headerStyle}">회의록</td></tr>
-        ${rows.map((row, i) => `<tr>
-          <td style="${thStyle}">${row.th}</td>
-          <td style="${i === 5 ? actionTdStyle : tdStyle}">${row.td.replace(/\n/g, '<br/>')}</td>
-        </tr>`).join('')}
-      </table>
-    </body>
-    </html>`
-
-  const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `회의록_${new Date().getTime()}.xls`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
-}
-
-// 메일 보내기 — mailto: 링크로 메일 앱 직접 열기
-const sendEmail = async () => {
-  if (!summaryResult.value) return
-
-  if (summaryMode.value === 'meeting_minutes' && parsedMeetingMinutes.value) {
-    const d = parsedMeetingMinutes.value
-    const subject = encodeURIComponent(`[회의록] ${d.topic || '회의'}`)
-    const body = encodeURIComponent(
-      `회의 주제: ${d.topic || ''}
-회의 일시: ${d.date || ''}
-참석자: ${d.attendees || ''}
-
-주요 논의 사항:
-${(d.discussions || []).map((s: string) => `• ${s}`).join('\n')}
-
-결정 사항:
-${(d.decisions || []).map((s: string) => `• ${s}`).join('\n')}
-
-추후 진행 사항:
-${(d.actionItems || []).map((s: string) => `• ${s}`).join('\n')}`
-    )
-    window.location.href = `mailto:?subject=${subject}&body=${body}`
-  } else {
-    // 일반 요약 — mailto로 열기
-    const subject = encodeURIComponent('[AI 요약] 회의 내용')
-    const body = encodeURIComponent(summaryResult.value)
-    window.location.href = `mailto:?subject=${subject}&body=${body}`
-  }
 }
 </script>
 
 <style lang="scss" scoped>
-/* ──────────────────────────────────
-   Google Material Design 스타일
-   ────────────────────────────────── */
-.file-upload {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
+.file-upload { display: flex; flex-direction: column; gap: 20px; }
 .upload-dropzone {
-  border: 2px dashed #dadce0;
-  border-radius: 8px;
-  padding: 48px 32px;
-  text-align: center;
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-  background-color: #ffffff;
-
+  border: 2px dashed #dadce0; border-radius: 8px; padding: 48px 32px; text-align: center; transition: background-color 0.2s ease, border-color 0.2s ease; background-color: #ffffff;
   &:hover { border-color: #1a73e8; background-color: #f0f4ff; }
-
-  &--dragging {
-    border-color: #1a73e8;
-    background-color: #e8f0fe;
-  }
-
+  &--dragging { border-color: #1a73e8; background-color: #e8f0fe; }
   &__input-wrapper { margin-top: 20px; }
-
-  &__label {
-    position: relative;
-    cursor: pointer;
-    border-radius: 4px;
-    font-weight: 500;
-    color: #1a73e8;
-    transition: color 0.2s ease;
-    &:hover { color: #1557b0; }
-    &:focus-within { outline: none; }
-  }
-
-  &__input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-
+  &__label { position: relative; cursor: pointer; border-radius: 4px; font-weight: 500; color: #1a73e8; transition: color 0.2s ease; &:hover { color: #1557b0; } &:focus-within { outline: none; } }
+  &__input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
   &__text { color: #5f6368; }
   &__hint { font-size: 12px; color: #80868b; margin-top: 8px; }
 }
-
 .file-info {
-  background-color: #f8f9fa;
-  border: 1px solid #e8eaed;
-  border-radius: 8px;
-  padding: 12px 16px;
-
+  background-color: #f8f9fa; border: 1px solid #e8eaed; border-radius: 8px; padding: 12px 16px;
   &__content { display: flex; align-items: center; justify-content: space-between; }
   &__details { display: flex; align-items: center; gap: 12px; }
   &__icon { height: 28px; width: 28px; color: #1a73e8; flex-shrink: 0;}
@@ -863,332 +452,77 @@ ${(d.actionItems || []).map((s: string) => `• ${s}`).join('\n')}`
   &__remove { color: #ea4335; background: none; border: none; cursor: pointer; border-radius: 50%; padding: 4px; transition: background-color 0.15s ease; &:hover { background-color: #fce8e6; } }
   &__remove-icon { height: 18px; width: 18px; display: block; }
 }
-
-.action-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-}
-
+.action-container { display: flex; flex-direction: column; align-items: center; gap: 20px; }
 .model-select {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  max-width: 320px;
-
+  display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; max-width: 320px;
   &__label { font-size: 12px; font-weight: 500; color: #5f6368; letter-spacing: 0.3px; }
-  &__input {
-    width: 100%;
-    padding: 10px 14px;
-    border-radius: 4px;
-    border: 1px solid #dadce0;
-    background-color: #ffffff;
-    font-size: 14px;
-    color: #202124;
-    outline: none;
-    transition: border-color 0.2s ease, box-shadow 0.15s ease;
-    &:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15); }
-    &:disabled { background-color: #f8f9fa; color: #80868b; cursor: not-allowed; }
-  }
+  &__input { width: 100%; padding: 10px 14px; border-radius: 4px; border: 1px solid #dadce0; background-color: #ffffff; font-size: 14px; color: #202124; outline: none; transition: border-color 0.2s ease, box-shadow 0.15s ease; &:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15); } &:disabled { background-color: #f8f9fa; color: #80868b; cursor: not-allowed; } }
 }
-
 .btn-convert {
-  padding: 10px 28px;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: 0.25px;
-  color: #ffffff;
-  background-color: #1a73e8;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1), 0 1px 3px rgba(26,115,232,0.3);
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
-  border: none;
-  cursor: pointer;
+  padding: 10px 28px; border-radius: 4px; font-size: 14px; font-weight: 500; letter-spacing: 0.25px; color: #ffffff; background-color: #1a73e8; box-shadow: 0 1px 2px rgba(0,0,0,0.1), 0 1px 3px rgba(26,115,232,0.3); transition: background-color 0.15s ease, box-shadow 0.15s ease; border: none; cursor: pointer;
   &:hover { background-color: #1557b0; box-shadow: 0 2px 6px rgba(26,115,232,0.4); }
   &--disabled { background-color: #80868b; box-shadow: none; cursor: not-allowed; &:hover { background-color: #80868b; box-shadow: none; } }
 }
-
-/* ── 변환 결과 카드 ── */
 .result-card {
-  background-color: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e8eaed;
-  padding: 20px 24px;
-
+  background-color: #ffffff; border-radius: 8px; border: 1px solid #e8eaed; padding: 20px 24px;
   &__title { font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; letter-spacing: 0.1px; }
-
-  &__content {
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    border: 1px solid #e8eaed;
-    padding: 16px;
-    min-height: 200px;
-    max-height: 420px;
-    overflow-y: auto;
-  }
-
-  &__actions {
-    margin-top: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-
-  &__main-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
+  &__content { background-color: #f8f9fa; border-radius: 4px; border: 1px solid #e8eaed; padding: 16px; min-height: 200px; max-height: 420px; overflow-y: auto; }
+  &__actions { margin-top: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  &__main-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 }
-
-/* 문단 분리 텍스트 */
-.transcription-paragraphs {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.transcription-para {
-  color: #202124;
-  line-height: 1.75;
-  letter-spacing: 0.01em;
-  font-size: 14px;
-  margin: 0;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e8eaed;
-
-  &:last-child {
-    border-bottom: none;
-    padding-bottom: 0;
-  }
-}
-
-/* 화자 구분 뷰 */
-.diarization-view {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
+.transcription-paragraphs { display: flex; flex-direction: column; gap: 12px; }
+.transcription-para { color: #202124; line-height: 1.75; letter-spacing: 0.01em; font-size: 14px; margin: 0; padding-bottom: 12px; border-bottom: 1px solid #e8eaed; &:last-child { border-bottom: none; padding-bottom: 0; } }
+.diarization-view { display: flex; flex-direction: column; gap: 10px; }
 .diarization-segment {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 16px;
-  border-radius: 4px;
-  border-left: 3px solid;
-
-  // Google 4-color palette for speakers
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 4px; border-left: 3px solid;
   &--0 { background-color: #e8f0fe; border-left-color: #4285F4; .diarization-segment__speaker { color: #1557b0; } }
   &--1 { background-color: #e6f4ea; border-left-color: #34A853; .diarization-segment__speaker { color: #137333; } }
   &--2 { background-color: #fef7e0; border-left-color: #FBBC04; .diarization-segment__speaker { color: #e37400; } }
   &--3 { background-color: #fce8e6; border-left-color: #EA4335; .diarization-segment__speaker { color: #c5221f; } }
   &--4 { background-color: #f3e8fd; border-left-color: #9334E6; .diarization-segment__speaker { color: #7627bb; } }
-
-  &__speaker {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  &__text {
-    color: #202124;
-    line-height: 1.65;
-    margin: 0;
-    font-size: 14px;
-  }
+  &__speaker { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+  &__text { color: #202124; line-height: 1.65; margin: 0; font-size: 14px; }
 }
-
-/* 텍스트 정리 버튼 (Google Blue outlined) */
-.btn-format {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #1a73e8;
-  background-color: transparent;
-  border: 1px solid #dadce0;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-  &:hover { background-color: #e8f0fe; border-color: #1a73e8; }
-  &--disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
-/* 화자 구분 버튼 (Google Green outlined) */
-.btn-diarize {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #34A853;
-  background-color: transparent;
-  border: 1px solid #dadce0;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-  &:hover { background-color: #e6f4ea; border-color: #34A853; }
-  &--disabled { opacity: 0.5; cursor: not-allowed; }
-}
-
-.btn-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
+.btn-format, .btn-diarize { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 500; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; &:disabled { opacity: 0.5; cursor: not-allowed; } }
+.btn-format { color: #1a73e8; &:hover { background-color: #e8f0fe; border-color: #1a73e8; } }
+.btn-diarize { color: #34A853; &:hover { background-color: #e6f4ea; border-color: #34A853; } }
+.btn-icon { width: 16px; height: 16px; flex-shrink: 0; }
 .meeting-minutes-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background-color: #f8f9fa;
-  padding: 3px 3px 3px 12px;
-  border-radius: 4px;
-  border: 1px solid #dadce0;
-  transition: border-color 0.15s ease;
-  &:focus-within { border-color: #1a73e8; }
-
-  .attendees-input {
-    border: none;
-    background: transparent;
-    font-size: 13px;
-    color: #202124;
-    outline: none;
-    width: 150px;
-    &::placeholder { color: #80868b; }
-    &:disabled { cursor: not-allowed; opacity: 0.7; }
-  }
+  display: flex; align-items: center; gap: 6px; background-color: #f8f9fa; padding: 3px 3px 3px 12px; border-radius: 4px; border: 1px solid #dadce0; transition: border-color 0.15s ease; &:focus-within { border-color: #1a73e8; }
+  .attendees-input { border: none; background: transparent; font-size: 13px; color: #202124; outline: none; width: 150px; &::placeholder { color: #80868b; } &:disabled { cursor: not-allowed; opacity: 0.7; } }
 }
-
 .btn-primary {
-  padding: 7px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.25px;
-  border-radius: 4px;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
-  background-color: #34A853; // Google Green
-  color: #ffffff;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  padding: 7px 16px; font-size: 13px; font-weight: 500; letter-spacing: 0.25px; border-radius: 4px; transition: background-color 0.15s ease, box-shadow 0.15s ease; background-color: #34A853; color: #ffffff; border: none; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
   &:hover { background-color: #2d8f47; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
-  &--dark { background-color: #1a73e8; &:hover { background-color: #1557b0; } } // Google Blue for 회의록
+  &--dark { background-color: #1a73e8; &:hover { background-color: #1557b0; } }
   &--disabled { background-color: #dadce0; color: #80868b; cursor: not-allowed; box-shadow: none; &:hover { background-color: #dadce0; box-shadow: none; } }
 }
-
-.btn-secondary {
-  padding: 7px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #1a73e8;
-  background-color: transparent;
-  border: 1px solid #dadce0;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
-  &:hover { background-color: #e8f0fe; border-color: #1a73e8; }
-}
-
-/* ── 요약/회의록 카드 ── */
+.btn-secondary { padding: 7px 16px; font-size: 13px; font-weight: 500; color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; border-radius: 4px; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; &:hover { background-color: #e8f0fe; border-color: #1a73e8; } }
 .summary-card {
-  background-color: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #e8eaed;
-  border-top: 3px solid #1a73e8; // Google Blue top accent
-  padding: 20px 24px;
-
-  &__title {
-    font-size: 16px;
-    font-weight: 500;
-    color: #202124;
-    margin: 0 0 16px 0;
-    display: flex;
-    align-items: center;
-    letter-spacing: 0.1px;
-  }
-
+  background-color: #ffffff; border-radius: 8px; border: 1px solid #e8eaed; border-top: 3px solid #1a73e8; padding: 20px 24px;
+  &__title { font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; display: flex; align-items: center; letter-spacing: 0.1px; }
   &__icon { width: 20px; height: 20px; margin-right: 8px; color: #1a73e8; }
-
-  &__content {
-    background-color: #ffffff;
-    border-radius: 4px;
-    padding: 0;
-    line-height: 1.625;
-    :deep(strong) { color: #1a73e8; font-weight: 600; }
-  }
-
+  &__content { background-color: #ffffff; border-radius: 4px; padding: 0; line-height: 1.625; :deep(strong) { color: #1a73e8; font-weight: 600; } }
   &__actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; flex-wrap: wrap; }
 }
-
 .btn-action {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 16px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.25px;
-  color: #1a73e8;
-  background-color: transparent;
-  border: 1px solid #dadce0;
-  cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  display: flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 4px; font-size: 13px; font-weight: 500; letter-spacing: 0.25px; color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   &:hover { background-color: #e8f0fe; border-color: #1a73e8; }
   &:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
   &__icon { width: 16px; height: 16px; }
 }
-
-/* 회의록 테이블 */
 .meeting-table-wrapper { overflow-x: auto; }
-
 .meeting-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-  text-align: left;
-  border: 1px solid #e8eaed;
-  border-radius: 4px;
-  overflow: hidden;
-
+  width: 100%; border-collapse: collapse; font-size: 14px; text-align: left; border: 1px solid #e8eaed; border-radius: 4px; overflow: hidden;
   th, td { padding: 14px 16px; border-bottom: 1px solid #e8eaed; }
-
-  th {
-    background-color: #e8f0fe;
-    font-weight: 600;
-    color: #1557b0;
-    width: 22%;
-    border-right: 1px solid #e8eaed;
-    vertical-align: top;
-    font-size: 13px;
-    letter-spacing: 0.1px;
-  }
-
+  th { background-color: #e8f0fe; font-weight: 600; color: #1557b0; width: 22%; border-right: 1px solid #e8eaed; vertical-align: top; font-size: 13px; letter-spacing: 0.1px; }
   td { color: #202124; vertical-align: top; line-height: 1.6; }
-
   ul { margin: 0; padding-left: 18px; li { margin-bottom: 4px; &:last-child { margin-bottom: 0; } } }
-
   tr:last-child th, tr:last-child td { border-bottom: none; }
   .action-items-row th { color: #e37400; background-color: #fef7e0; }
 }
-
-/* 알림 — Google Material style */
 .alert {
-  border-radius: 4px;
-  padding: 12px 16px;
-  border: 1px solid transparent;
+  border-radius: 4px; padding: 12px 16px; border: 1px solid transparent;
   &__content { display: flex; align-items: center; }
   &__icon { height: 20px; width: 20px; flex-shrink: 0; }
   &__message { margin: 0 0 0 12px; font-size: 14px; }

@@ -21,8 +21,9 @@ export async function transcribeAudio(
     })
   }
 
-  // Whisper prompt: 이전 텍스트가 있으면 문맥으로 시작 (최대 224 토큰)
-  const basePrompt = '한국어 음성 녹음입니다. 맞춤법과 띄어쓰기를 정확하게 유지해 주세요.'
+  // Whisper prompt: 한국어 성능 향상을 위한 최소한의 프롬프트
+  // 너무 길면 무음 시 프롬프트 자체가 결과로 반환되는 '환각' 현상이 발생할 수 있음
+  const basePrompt = '한국어 음성 녹음입니다.'
   const prompt = contextPrompt
     ? `${contextPrompt.slice(-200)} ${basePrompt}`
     : basePrompt
@@ -46,7 +47,23 @@ export async function transcribeAudio(
       }
     )
 
-    return response.text
+    const text = response.text || ''
+
+    // 환각(Hallucination) 필터링: 무음이나 노이즈 시 프롬프트가 반복되는 경우 제외
+    const hallucinations = [
+      basePrompt,
+      '음성 녹음이 끝난 후에 띄어쓰기를 연결해 주시면 됩니다.',
+      '한국어 음성 녹음',
+      '음성 녹음이 끝난 후에 띄어쓰기를 연결해 주시면 됩니다. 한국어 음성 녹음'
+    ]
+
+    const trimmedText = text.trim()
+    if (hallucinations.some(h => trimmedText.includes(h) && trimmedText.length <= h.length + 5)) {
+      console.log('Filtered Whisper hallucination:', trimmedText)
+      return ''
+    }
+
+    return text
   } catch (error: any) {
     console.error('Groq Whisper API error:', error)
     
