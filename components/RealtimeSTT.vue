@@ -1,7 +1,7 @@
 <template>
   <div class="realtime-stt">
     <!-- 녹음 상태 표시 -->
-    <StatusAnimation :status="currentStatus" mode="realtime" />
+    <StatusAnimation :status="currentStatus" mode="realtime" :totalChunks="totalChunks" :processedChunks="processedChunks" />
 
     <!-- 녹음 컨트롤 -->
     <div class="record-control">
@@ -38,7 +38,7 @@
       </button>
 
       <p class="record-control__hint" aria-hidden="true">
-        {{ isRecording ? '녹음 중지하려면 클릭' : '녹음 시작하려면 클릭' }}
+        {{ isRecording ? '녹음 중지하려면 클릭해주세요' : '녹음 시작하려면 클릭해주세요' }}
       </p>
     </div>
 
@@ -47,19 +47,11 @@
       <p class="record-timer__text">{{ formatTime(recordingTime) }}</p>
     </div>
 
-    <!-- 녹음 종료 후 변환 중 상태 -->
-    <div v-if="isConverting" class="record-timer" role="status" aria-live="polite">
-      <p class="record-timer__text">
-        {{ totalChunks > 1 ? `텍스트 변환 중... (${processedChunks}/${totalChunks})` : '텍스트 변환 중...' }}
-      </p>
-    </div>
-
     <!-- 텍스트 결과 -->
     <div v-if="transcriptionResult || isConverting" class="result-box" id="tabpanel-realtime" role="tabpanel" aria-labelledby="tab-realtime">
       <h3 class="result-box__title">
         <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
         녹음 인식 결과
       </h3>

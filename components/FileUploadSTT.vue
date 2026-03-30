@@ -12,7 +12,7 @@
         { 'upload-dropzone--dragging': isDragging }
       ]"
     >
-      <StatusAnimation :status="currentStatus" mode="file" />
+      <StatusAnimation :status="currentStatus" mode="file" :totalChunks="totalChunks" :processedChunks="processedChunks" />
       
       <div class="upload-dropzone__input-wrapper" v-if="!isConverting && !isSummarizing">
         <label
@@ -74,10 +74,7 @@
         :disabled="isConverting"
         :class="['btn-convert', { 'btn-convert--disabled': isConverting }]"
       >
-        {{ isConverting 
-          ? (totalChunks > 1 ? `변환 중... (${processedChunks}/${totalChunks})` : '변환 중...') 
-          : '텍스트로 변환' 
-        }}
+        {{ isConverting ? '텍스트로 변환 중...' : '텍스트로 변환' }}
       </button>
     </div>
 

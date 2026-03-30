@@ -11,7 +11,17 @@
       <div v-if="isLoading" class="status-pulse"></div>
     </div>
     
-    <p class="status-text">{{ statusText }}</p>
+    <p class="status-text">
+      {{ statusText }}
+      <span v-if="status === 'converting' && progressPercentage > 0" class="status-progress-text">({{ progressPercentage }}%)</span>
+    </p>
+
+    <!-- 프로그레스 바 -->
+    <div v-if="status === 'converting' && totalChunks > 1" class="progress-bar-container">
+      <div class="progress-bar">
+        <div class="progress-bar__fill" :style="{ width: `${progressPercentage}%` }"></div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -20,11 +30,15 @@ import { computed } from 'vue'
 
 interface Props {
   status: 'idle' | 'recording' | 'converting' | 'summarizing' | 'finished',
-  mode?: 'file' | 'realtime'
+  mode?: 'file' | 'realtime',
+  totalChunks?: number,
+  processedChunks?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  mode: 'file'
+  mode: 'file',
+  totalChunks: 0,
+  processedChunks: 0
 })
 
 const statusImages = {
@@ -66,6 +80,11 @@ const currentImage = computed(() => statusImages[props.status])
 const statusText = computed(() => statusTexts.value)
 const animationClass = computed(() => animationClasses[props.status])
 const isLoading = computed(() => ['recording', 'converting', 'summarizing'].includes(props.status))
+
+const progressPercentage = computed(() => {
+  if (props.totalChunks === 0) return 0
+  return Math.max(0, Math.min(100, Math.round((props.processedChunks / props.totalChunks) * 100)))
+})
 </script>
 
 <style lang="scss" scoped>
@@ -122,7 +141,61 @@ const isLoading = computed(() => ['recording', 'converting', 'summarizing'].incl
     font-weight: 500;
     color: #374151;
     animation: fade-in 0.5s ease-out;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
+
+  .status-progress-text {
+    font-size: 0.95rem;
+    color: #1a73e8;
+    font-weight: 600;
+  }
+
+  .progress-bar-container {
+    width: 100%;
+    max-width: 250px;
+    margin-top: 16px;
+    animation: fade-in 0.5s ease-out;
+  }
+
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    background-color: #e8eaed;
+    border-radius: 4px;
+    overflow: hidden;
+
+    &__fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4285F4, #1a73e8);
+      border-radius: 4px;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+
+      &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0) 0%,
+          rgba(255, 255, 255, 0.3) 50%,
+          rgba(255, 255, 255, 0) 100%
+        );
+        animation: shimmer 1.5s infinite linear;
+      }
+    }
+  }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 @keyframes fade-in {
