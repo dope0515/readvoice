@@ -11,12 +11,12 @@
             오픈소스 라이선스
           </button>
           <a
-            href="https://github.com/openai/whisper"
+            href="https://ai.meta.com/llama/"
             target="_blank"
             rel="noopener noreferrer"
             class="app-footer__link"
           >
-            Powered by Whisper
+            Powered by Llama 3.3 & Whisper
           </a>
         </div>
       </div>
@@ -39,7 +39,7 @@
 
             <div class="license-modal__body">
               <p class="license-modal__description">
-                이 서비스는 다음 오픈소스 소프트웨어를 사용하며, 모두 MIT 라이선스를 따릅니다.
+                이 서비스는 다음 오픈소스 소프트웨어와 AI 모델을 사용하며, 각 저작권자의 라이선스 정책을 준수합니다.
               </p>
 
               <div class="license-list">
@@ -49,7 +49,7 @@
                   <a :href="license.url" target="_blank" rel="noopener noreferrer" class="license-item__url">
                     {{ license.url }}
                   </a>
-                  <p class="license-item__copyright">MIT License - {{ license.copyright }}</p>
+                  <p class="license-item__copyright">{{ license.licenseType || 'MIT License' }} - {{ license.copyright }}</p>
                 </div>
               </div>
 
@@ -76,34 +76,46 @@ const showLicenseModal = ref(false)
 
 const licenses = [
   {
+    name: 'Meta Llama 3.3',
+    description: '고성능 LLM 요약 및 회의록 생성 모델',
+    url: 'https://ai.meta.com/llama/',
+    copyright: 'Copyright (c) 2024 Meta Platforms, Inc.',
+    licenseType: 'Llama 3 Community License'
+  },
+  {
     name: 'OpenAI Whisper',
-    description: '음성 인식 AI 모델',
+    description: '음성 인식(STT) AI 모델 (Large-v3)',
     url: 'https://github.com/openai/whisper',
-    copyright: 'Copyright (c) 2022 OpenAI'
+    copyright: 'Copyright (c) 2022 OpenAI',
+    licenseType: 'MIT License'
   },
   {
     name: 'Nuxt.js',
     description: 'Vue.js 프레임워크',
     url: 'https://github.com/nuxt/nuxt',
-    copyright: 'Copyright (c) 2016-present Nuxt'
+    copyright: 'Copyright (c) 2016-present Nuxt',
+    licenseType: 'MIT License'
   },
   {
     name: 'Vue.js',
     description: 'JavaScript 프레임워크',
     url: 'https://github.com/vuejs/core',
-    copyright: 'Copyright (c) 2013-present Evan You'
+    copyright: 'Copyright (c) 2013-present Evan You',
+    licenseType: 'MIT License'
   },
   {
     name: 'FastAPI',
-    description: 'Python 웹 프레임워크',
+    description: 'Python 기반 음성 처리 API 인프라',
     url: 'https://github.com/tiangolo/fastapi',
-    copyright: 'Copyright (c) 2018 Sebastián Ramírez'
+    copyright: 'Copyright (c) 2018 Sebastián Ramírez',
+    licenseType: 'MIT License'
   },
   {
     name: 'Ollama',
-    description: '로컬 LLM 실행 도구',
+    description: '로컬 환경 AI 모델 실행 및 테스트 도구',
     url: 'https://github.com/ollama/ollama',
-    copyright: 'Copyright (c) 2023 Jeffrey Morgan'
+    copyright: 'Copyright (c) 2023 Jeffrey Morgan',
+    licenseType: 'MIT License'
   }
 ]
 
