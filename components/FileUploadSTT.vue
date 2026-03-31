@@ -221,10 +221,19 @@
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
           TXT 저장
         </button>
-        <button @click="handleSendEmail" class="btn-action">
-          <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-          메일 보내기
-        </button>
+        <div class="email-export-wrapper">
+          <input 
+            v-model="recipientEmail" 
+            type="email" 
+            class="email-input" 
+            placeholder="받으실 이메일 주소"
+            :disabled="isSendingEmail"
+          />
+          <button @click="handleSendEmail" class="btn-action" :disabled="isSendingEmail || !recipientEmail">
+            <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+            {{ isSendingEmail ? '발송 중...' : '메일 보내기' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -260,7 +269,7 @@ import { ref, computed } from 'vue'
 import StatusAnimation from './StatusAnimation.vue'
 import { useSTT } from '~/composables/useSTT'
 import { formatFileSize } from '~/utils/audio'
-import { exportToPdf, exportToExcel, sendEmail } from '~/utils/export'
+import { exportToPdf, exportToExcel, sendEmail, getFormattedFilename } from '~/utils/export'
 
 const ALLOWED_EXTENSIONS = ['.wav', '.mp3', '.m4a', '.flac', '.ogg']
 const MAX_FILE_SIZE = 100 * 1024 * 1024
@@ -270,6 +279,8 @@ const selectedFile = ref<File | null>(null)
 const selectedModel = ref('whisper-large-v3')
 const attendeesInput = ref('')
 const isExportingPdf = ref(false)
+const isSendingEmail = ref(false)
+const recipientEmail = ref('')
 const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 
 const stt = useSTT()
@@ -404,7 +415,7 @@ const copyToClipboard = async () => {
 const handleExportPdf = async () => {
   isExportingPdf.value = true
   try {
-    await exportToPdf('meeting-minutes-area', `회의록_${new Date().getTime()}`)
+    await exportToPdf('meeting-minutes-area', getFormattedFilename())
   } catch (e) {
     alert('PDF 생성 실패')
   } finally {
@@ -414,13 +425,25 @@ const handleExportPdf = async () => {
 
 const handleExportExcel = () => {
   if (!parsedMeetingMinutes.value) return
-  exportToExcel(parsedMeetingMinutes.value, `회의록_${new Date().getTime()}`)
+  exportToExcel(parsedMeetingMinutes.value, getFormattedFilename())
 }
 
-const handleSendEmail = () => {
-  if (!summaryResult.value) return
-  const subject = summaryMode.value === 'meeting_minutes' ? '[회의록] 회의 결과' : '[AI 요약] 회의 내용'
-  sendEmail(subject, summaryResult.value, parsedMeetingMinutes.value)
+const handleSendEmail = async () => {
+  if (!summaryResult.value || !recipientEmail.value) return
+  
+  isSendingEmail.value = true
+  errorMessage.value = ''
+  
+  try {
+    const subject = summaryMode.value === 'meeting_minutes' ? '[회의록] 회의 결과' : '[AI 요약] 회의 내용'
+    await sendEmail(recipientEmail.value.trim(), subject, summaryResult.value, parsedMeetingMinutes.value)
+    alert('이메일이 성공적으로 발송되었습니다.\n(단, 무료 플랜인 경우 본인 계정 이메일로만 발송됩니다.)')
+  } catch (error: any) {
+    console.error(error)
+    errorMessage.value = error.message || '이메일 발송 중 오류가 발생했습니다.'
+  } finally {
+    isSendingEmail.value = false
+  }
 }
 
 const downloadSummary = () => {
@@ -429,7 +452,7 @@ const downloadSummary = () => {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `요약_${new Date().getTime()}.txt`
+  a.download = `${getFormattedFilename('요약')}.txt`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -503,6 +526,11 @@ const downloadSummary = () => {
   &--disabled { background-color: #dadce0; color: #80868b; cursor: not-allowed; box-shadow: none; &:hover { background-color: #dadce0; box-shadow: none; } }
 }
 .btn-secondary { padding: 7px 16px; font-size: 13px; font-weight: 500; color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; border-radius: 4px; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; &:hover { background-color: #e8f0fe; border-color: #1a73e8; } }
+.email-export-wrapper {
+  display: flex; align-items: center; gap: 6px; background-color: #f8f9fa; padding: 2px 2px 2px 12px; border-radius: 4px; border: 1px solid #dadce0; transition: border-color 0.15s ease; &:focus-within { border-color: #1a73e8; }
+  .email-input { border: none; background: transparent; font-size: 13px; color: #202124; outline: none; width: 140px; &::placeholder { color: #80868b; } &:disabled { opacity: 0.7; } }
+  .btn-action { margin-left: auto; border: none; background-color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+}
 .summary-card {
   background-color: #ffffff; border-radius: 8px; border: 1px solid #e8eaed; border-top: 3px solid #1a73e8; padding: 20px 24px;
   &__title { font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; display: flex; align-items: center; letter-spacing: 0.1px; }

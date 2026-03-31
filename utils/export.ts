@@ -3,6 +3,17 @@
  */
 
 /**
+ * Format a filename with current date: YYYY년_MM월_DD일_prefix
+ */
+export const getFormattedFilename = (prefix: string = '회의록') => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}년_${month}월_${day}일_${prefix}`
+}
+
+/**
  * Export meeting minutes to PDF
  */
 export const exportToPdf = async (elementId: string, filename: string) => {
@@ -90,33 +101,83 @@ export const exportToExcel = (data: any, filename: string) => {
 }
 
 /**
- * Send content via Email using default mail app (mailto)
+ * Send content via Email using Resend via server API
  */
-export const sendEmail = (subjectLine: string, bodyText: string, data?: any) => {
-  let content = bodyText;
+export const sendEmail = async (recipientEmail: string, subjectLine: string, bodyText: string, data?: any) => {
+  let htmlContent = '';
 
-  // 만약 정리된 회의록 데이터가 있다면, 텍스트로 보기 좋게 포맷팅
   if (data) {
     const { topic = '제목 없음', date = '-', attendees = '-', discussions = [], decisions = [], actionItems = [] } = data;
     
-    content = `[회의 주제]: ${topic}\n`;
-    content += `[회의 일시]: ${date}\n`;
-    content += `[참석자]: ${attendees}\n\n`;
-    
-    if (discussions.length > 0) {
-      content += `[주요 논의 사항]\n${discussions.map((d: string) => `- ${d}`).join('\n')}\n\n`;
-    }
-    
-    if (decisions.length > 0) {
-      content += `[결정 사항]\n${decisions.map((d: string) => `- ${d}`).join('\n')}\n\n`;
-    }
-    
-    if (actionItems.length > 0) {
-      content += `[추후 진행 사항]\n${actionItems.map((a: string) => `- ${a}`).join('\n')}\n`;
-    }
+    htmlContent = `
+      <div style="font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: #202124; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; background-color: #ffffff;">
+        <div style="background-color: #1a73e8; color: #ffffff; padding: 20px; text-align: center;">
+          <h1 style="margin: 0; font-size: 24px;">회의록</h1>
+        </div>
+        <div style="padding: 24px;">
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+            <tr>
+              <th style="background-color: #e8f0fe; color: #1557b0; padding: 12px; text-align: left; border: 1px solid #e0e0e0; width: 120px;">회의 주제</th>
+              <td style="padding: 12px; border: 1px solid #e0e0e0;">${topic}</td>
+            </tr>
+            <tr>
+              <th style="background-color: #e8f0fe; color: #1557b0; padding: 12px; text-align: left; border: 1px solid #e0e0e0;">회의 일시</th>
+              <td style="padding: 12px; border: 1px solid #e0e0e0;">${date}</td>
+            </tr>
+            <tr>
+              <th style="background-color: #e8f0fe; color: #1557b0; padding: 12px; text-align: left; border: 1px solid #e0e0e0;">참석자</th>
+              <td style="padding: 12px; border: 1px solid #e0e0e0;">${attendees}</td>
+            </tr>
+          </table>
+
+          <h2 style="font-size: 18px; color: #1a73e8; margin-top: 24px; margin-bottom: 12px; border-bottom: 2px solid #e8f0fe; padding-bottom: 4px;">주요 논의 사항</h2>
+          <ul style="padding-left: 20px; margin-bottom: 24px;">
+            ${(discussions || []).map((d: string) => `<li style="margin-bottom: 8px; line-height: 1.6;">${d}</li>`).join('')}
+          </ul>
+
+          <h2 style="font-size: 18px; color: #1a73e8; margin-top: 24px; margin-bottom: 12px; border-bottom: 2px solid #e8f0fe; padding-bottom: 4px;">결정 사항</h2>
+          <ul style="padding-left: 20px; margin-bottom: 24px;">
+            ${(decisions || []).map((d: string) => `<li style="margin-bottom: 8px; line-height: 1.6;">${d}</li>`).join('')}
+          </ul>
+
+          <div style="background-color: #fff8e1; border: 1px solid #ffecb3; padding: 16px; border-radius: 6px; margin-top: 24px;">
+            <h2 style="font-size: 18px; color: #e37400; margin-top: 0; margin-bottom: 12px;">추후 진행 사항</h2>
+            <ul style="padding-left: 20px; margin: 0; color: #5f4c00;">
+              ${(actionItems || []).map((a: string) => `<li style="margin-bottom: 8px; line-height: 1.6;">${a}</li>`).join('')}
+            </ul>
+          </div>
+        </div>
+        <div style="background-color: #f8f9fa; padding: 16px; text-align: center; color: #5f6368; font-size: 12px; border-top: 1px solid #e0e0e0;">
+          이 메일은 <strong>읽어줄래요</strong> STT 서비스에서 발송되었습니다.
+        </div>
+      </div>
+    `;
+  } else {
+    htmlContent = `<div style="font-family: sans-serif; line-height: 1.6; white-space: pre-wrap;">${bodyText}</div>`;
   }
 
-  const subject = encodeURIComponent(subjectLine)
-  const body = encodeURIComponent(content)
-  window.location.href = `mailto:?subject=${subject}&body=${body}`
+  try {
+    const response = await fetch('/api/mail/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: recipientEmail,
+        subject: subjectLine,
+        html: htmlContent,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.statusMessage || '메일 발송 실패');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Email sending failed:', error);
+    throw error;
+  }
 }
+

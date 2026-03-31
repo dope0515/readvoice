@@ -15,7 +15,8 @@ export default defineNuxtConfig({
   
   runtimeConfig: {
     // 서버 측 전용 (API 키 보호)
-    groqApiKey: process.env.GROQ_API_KEY || ''
+    groqApiKey: process.env.GROQ_API_KEY || '',
+    resendApiKey: process.env.RESEND_API_KEY || ''
   },
 
   modules: [
