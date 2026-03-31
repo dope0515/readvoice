@@ -64,7 +64,10 @@ const tabs: Tab[] = [
   border-radius: 4px 4px 0 0;
   white-space: nowrap;
   outline: none;
-
+  @media screen and (max-width: 768px) {
+    width: 50%;
+    justify-content: center;
+  }
   &__icon {
     width: 18px;
     height: 18px;
