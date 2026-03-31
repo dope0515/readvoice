@@ -651,6 +651,15 @@ onUnmounted(() => {
   th { background-color: #f8f9fa; color: #5f6368; width: 120px; text-align: left; vertical-align: top; }
   td { color: #202124; }
   .action-items-row th { background-color: #fef7e0; color: #e37400; }
+  
+  @media (max-width: 600px) {
+    display: block; border: none;
+    tbody, tr, th, td { display: block; box-sizing: border-box; width: 100%; }
+    tr { margin-bottom: 12px; border: 1px solid #e8eaed; border-radius: 8px; overflow: hidden; }
+    tr:last-child { margin-bottom: 0; }
+    th { border-bottom: none; border-right: none; padding: 12px 14px 4px; font-size: 12px; }
+    td { border-bottom: none; padding: 0 14px 14px; }
+  }
 }
 
 .alert {

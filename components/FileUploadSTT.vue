@@ -553,6 +553,15 @@ const downloadSummary = () => {
   ul { margin: 0; padding-left: 18px; li { margin-bottom: 4px; &:last-child { margin-bottom: 0; } } }
   tr:last-child th, tr:last-child td { border-bottom: none; }
   .action-items-row th { color: #e37400; background-color: #fef7e0; }
+  
+  @media (max-width: 600px) {
+    display: block; border: none;
+    tbody, tr, th, td { display: block; box-sizing: border-box; width: 100%; }
+    tr { margin-bottom: 12px; border: 1px solid #e8eaed; border-radius: 8px; overflow: hidden; }
+    tr:last-child { margin-bottom: 0; }
+    th { border-bottom: none; border-right: none; padding: 12px 16px 4px; font-size: 12px; }
+    td { border-bottom: none; padding: 0 16px 16px; }
+  }
 }
 .alert {
   border-radius: 4px; padding: 12px 16px; border: 1px solid transparent;

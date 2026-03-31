@@ -16,7 +16,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     // 서버 측 전용 (API 키 보호)
     groqApiKey: process.env.GROQ_API_KEY || '',
-    resendApiKey: process.env.RESEND_API_KEY || ''
+    gmailUser: process.env.GMAIL_USER || '',
+    gmailAppPassword: process.env.GMAIL_APP_PASSWORD || ''
   },
 
   modules: [

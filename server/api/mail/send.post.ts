@@ -1,29 +1,33 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
   const config = useRuntimeConfig();
 
-  const resend = new Resend(config.resendApiKey);
+  // Gmail SMTP 설정
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: config.gmailUser,
+      pass: config.gmailAppPassword,
+    },
+  });
 
   try {
     const { to, subject, html } = body;
 
-    // Resend requires a verified domain to send from, 
-    // or onboarding@resend.dev which only sends to the verified email address.
-    const data = await resend.emails.send({
-      from: 'onboarding@resend.dev', 
-      to: [to],
-      subject: subject,
-      html: html,
-    });
+    const mailOptions = {
+      from: `"읽어줄래요" <${config.gmailUser}>`,
+      to,
+      subject,
+      html,
+    };
 
-    if (data.error) {
-      throw data.error;
-    }
+    const info = await transporter.sendMail(mailOptions);
 
-    return { success: true, data };
+    return { success: true, messageId: info.messageId };
   } catch (error: any) {
+    console.error('Email sending failed:', error);
     return createError({
       statusCode: 500,
       statusMessage: error.message || 'Failed to send email',
