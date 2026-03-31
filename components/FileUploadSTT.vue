@@ -79,9 +79,14 @@
     </div>
 
     <!-- 변환 결과 -->
-    <div v-if="transcriptionResult" class="result-card" id="tabpanel-file" role="tabpanel" aria-labelledby="tab-file">
-      <h3 class="result-card__title">변환 결과</h3>
-      <div class="result-card__content" role="region" aria-label="변환된 텍스트">
+    <div v-if="transcriptionResult" class="stt-result-card" id="tabpanel-file" role="tabpanel" aria-labelledby="tab-file">
+      <h3 class="stt-result-card__title">
+        <svg class="stt-result-card__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+        </svg>
+        변환 결과
+      </h3>
+      <div class="stt-result-card__content" role="region" aria-label="변환된 텍스트">
         <!-- 화자 구분 뷰 -->
         <div v-if="diarizationResult && diarizationResult.length > 0" class="diarization-view">
           <div
@@ -103,9 +108,9 @@
           >{{ para }}</p>
         </div>
       </div>
-      <div class="result-card__actions">
+      <div class="stt-result-card__actions">
         <button @click="copyToClipboard" class="btn-secondary">복사</button>
-        <div class="result-card__main-actions">
+        <div class="stt-result-card__main-actions">
           <button
             @click="stt.formatText(transcriptionResult)"
             :disabled="isSummarizing"
@@ -221,18 +226,42 @@
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
           TXT 저장
         </button>
-        <div class="email-export-wrapper">
-          <input 
-            v-model="recipientEmail" 
-            type="email" 
-            class="email-input" 
-            placeholder="받으실 이메일 주소"
-            :disabled="isSendingEmail"
-          />
-          <button @click="handleSendEmail" class="btn-action" :disabled="isSendingEmail || !recipientEmail">
-            <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-            {{ isSendingEmail ? '발송 중...' : '메일 보내기' }}
-          </button>
+        <div class="email-chips-wrapper">
+          <!-- 상단: 입력된 칩들 -->
+          <div v-if="recipientEmails.length > 0" class="email-chips-display">
+            <div v-for="(email, index) in recipientEmails" :key="index" class="email-chip">
+              <span class="email-chip__text">{{ email }}</span>
+              <button @click="removeEmail(index)" class="email-chip__remove" aria-label="이메일 삭제">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 하단: 입력 영역 (단일 텍스트 입력창) -->
+          <div class="email-input-group">
+            <div class="email-input-fields">
+              <input 
+                v-model="currentEmailInput" 
+                type="email" 
+                class="email-full-input" 
+                placeholder="이메일 주소 입력 (예: name@company.com)"
+                :disabled="isSendingEmail"
+                @keydown.enter.prevent="addEmail"
+              />
+              <button @click="addEmail" class="btn-add-email" title="추가">
+                <svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+              </button>
+            </div>
+            
+            <button 
+              @click="handleSendEmail" 
+              class="btn-send-email" 
+              :disabled="isSendingEmail || recipientEmails.length === 0"
+            >
+              <svg class="btn-send-email__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+              {{ isSendingEmail ? '발송 중...' : `모두에게 메일 보내기 (${recipientEmails.length})` }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -280,7 +309,8 @@ const selectedModel = ref('whisper-large-v3')
 const attendeesInput = ref('')
 const isExportingPdf = ref(false)
 const isSendingEmail = ref(false)
-const recipientEmail = ref('')
+const recipientEmails = ref<string[]>([])
+const currentEmailInput = ref('')
 const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 
 const stt = useSTT()
@@ -428,16 +458,39 @@ const handleExportExcel = () => {
   exportToExcel(parsedMeetingMinutes.value, getFormattedFilename())
 }
 
+const addEmail = () => {
+  const email = currentEmailInput.value.trim()
+  if (!email) return
+  
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email)) {
+    alert('유효한 이메일 형식이 아닙니다.')
+    return
+  }
+  
+  if (recipientEmails.value.includes(email)) {
+    currentEmailInput.value = ''
+    return
+  }
+  
+  recipientEmails.value.push(email)
+  currentEmailInput.value = ''
+}
+
+const removeEmail = (index: number) => {
+  recipientEmails.value.splice(index, 1)
+}
+
 const handleSendEmail = async () => {
-  if (!summaryResult.value || !recipientEmail.value) return
+  if (!summaryResult.value || recipientEmails.value.length === 0) return
   
   isSendingEmail.value = true
   errorMessage.value = ''
   
   try {
     const subject = summaryMode.value === 'meeting_minutes' ? '[회의록] 회의 결과' : '[AI 요약] 회의 내용'
-    await sendEmail(recipientEmail.value.trim(), subject, summaryResult.value, parsedMeetingMinutes.value)
-    alert('이메일이 성공적으로 발송되었습니다.\n(단, 무료 플랜인 경우 본인 계정 이메일로만 발송됩니다.)')
+    await sendEmail(recipientEmails.value, subject, summaryResult.value, parsedMeetingMinutes.value)
+    alert('이메일이 성공적으로 발송되었습니다.\n(단, 무료 플랜인 경우 인증된 계정으로만 발송될 수 있습니다.)')
   } catch (error: any) {
     console.error(error)
     errorMessage.value = error.message || '이메일 발송 중 오류가 발생했습니다.'
@@ -475,100 +528,15 @@ const downloadSummary = () => {
   &__content { display: flex; align-items: center; justify-content: space-between; }
   &__details { display: flex; align-items: center; gap: 12px; }
   &__icon { height: 28px; width: 28px; color: #1a73e8; flex-shrink: 0;}
-  &__name { font-size: 14px; font-weight: 500; color: #202124; margin: 0; text-overflow: ellipsis; -webkit-line-clamp: 1; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;}
+  &__name { font-size: 14px; font-weight: 500; color: #202124; margin: 0; text-overflow: ellipsis; -webkit-line-clamp: 1; line-clamp: 1; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden;}
   &__size { font-size: 12px; color: #5f6368; margin: 0; }
   &__remove { color: #ea4335; background: none; border: none; cursor: pointer; border-radius: 50%; padding: 4px; transition: background-color 0.15s ease; &:hover { background-color: #fce8e6; } }
   &__remove-icon { height: 18px; width: 18px; display: block; }
 }
 .action-container { display: flex; flex-direction: column; align-items: center; gap: 20px; }
-.model-select {
-  display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; max-width: 320px;
-  &__label { font-size: 12px; font-weight: 500; color: #5f6368; letter-spacing: 0.3px; }
-  &__input { width: 100%; padding: 10px 14px; border-radius: 4px; border: 1px solid #dadce0; background-color: #ffffff; font-size: 14px; color: #202124; outline: none; transition: border-color 0.2s ease, box-shadow 0.15s ease; &:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15); } &:disabled { background-color: #f8f9fa; color: #80868b; cursor: not-allowed; } }
-}
 .btn-convert {
   padding: 10px 28px; border-radius: 4px; font-size: 14px; font-weight: 500; letter-spacing: 0.25px; color: #ffffff; background-color: #1a73e8; box-shadow: 0 1px 2px rgba(0,0,0,0.1), 0 1px 3px rgba(26,115,232,0.3); transition: background-color 0.15s ease, box-shadow 0.15s ease; border: none; cursor: pointer;
   &:hover { background-color: #1557b0; box-shadow: 0 2px 6px rgba(26,115,232,0.4); }
   &--disabled { background-color: #80868b; box-shadow: none; cursor: not-allowed; &:hover { background-color: #80868b; box-shadow: none; } }
-}
-.result-card {
-  background-color: #ffffff; border-radius: 8px; border: 1px solid #e8eaed; padding: 20px 24px;
-  &__title { font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; letter-spacing: 0.1px; }
-  &__content { background-color: #f8f9fa; border-radius: 4px; border: 1px solid #e8eaed; padding: 16px; min-height: 200px; max-height: 420px; overflow-y: auto; }
-  &__actions { margin-top: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-  &__main-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-}
-.transcription-paragraphs { display: flex; flex-direction: column; gap: 12px; }
-.transcription-para { color: #202124; line-height: 1.75; letter-spacing: 0.01em; font-size: 14px; margin: 0; padding-bottom: 12px; border-bottom: 1px solid #e8eaed; &:last-child { border-bottom: none; padding-bottom: 0; } }
-.diarization-view { display: flex; flex-direction: column; gap: 10px; }
-.diarization-segment {
-  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 4px; border-left: 3px solid;
-  &--0 { background-color: #e8f0fe; border-left-color: #4285F4; .diarization-segment__speaker { color: #1557b0; } }
-  &--1 { background-color: #e6f4ea; border-left-color: #34A853; .diarization-segment__speaker { color: #137333; } }
-  &--2 { background-color: #fef7e0; border-left-color: #FBBC04; .diarization-segment__speaker { color: #e37400; } }
-  &--3 { background-color: #fce8e6; border-left-color: #EA4335; .diarization-segment__speaker { color: #c5221f; } }
-  &--4 { background-color: #f3e8fd; border-left-color: #9334E6; .diarization-segment__speaker { color: #7627bb; } }
-  &__speaker { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
-  &__text { color: #202124; line-height: 1.65; margin: 0; font-size: 14px; }
-}
-.btn-format, .btn-diarize { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 500; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; &:disabled { opacity: 0.5; cursor: not-allowed; } }
-.btn-format { color: #1a73e8; &:hover { background-color: #e8f0fe; border-color: #1a73e8; } }
-.btn-diarize { color: #34A853; &:hover { background-color: #e6f4ea; border-color: #34A853; } }
-.btn-icon { width: 16px; height: 16px; flex-shrink: 0; }
-.meeting-minutes-wrapper {
-  display: flex; align-items: center; gap: 6px; background-color: #f8f9fa; padding: 3px 3px 3px 12px; border-radius: 4px; border: 1px solid #dadce0; transition: border-color 0.15s ease; &:focus-within { border-color: #1a73e8; }
-  .attendees-input { border: none; background: transparent; font-size: 13px; color: #202124; outline: none; width: 150px; &::placeholder { color: #80868b; } &:disabled { cursor: not-allowed; opacity: 0.7; } }
-}
-.btn-primary {
-  padding: 7px 16px; font-size: 13px; font-weight: 500; letter-spacing: 0.25px; border-radius: 4px; transition: background-color 0.15s ease, box-shadow 0.15s ease; background-color: #34A853; color: #ffffff; border: none; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-  &:hover { background-color: #2d8f47; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
-  &--dark { background-color: #1a73e8; &:hover { background-color: #1557b0; } }
-  &--disabled { background-color: #dadce0; color: #80868b; cursor: not-allowed; box-shadow: none; &:hover { background-color: #dadce0; box-shadow: none; } }
-}
-.btn-secondary { padding: 7px 16px; font-size: 13px; font-weight: 500; color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; border-radius: 4px; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease; &:hover { background-color: #e8f0fe; border-color: #1a73e8; } }
-.email-export-wrapper {
-  display: flex; align-items: center; gap: 6px; background-color: #f8f9fa; padding: 2px 2px 2px 12px; border-radius: 4px; border: 1px solid #dadce0; transition: border-color 0.15s ease; &:focus-within { border-color: #1a73e8; }
-  .email-input { border: none; background: transparent; font-size: 13px; color: #202124; outline: none; width: 140px; &::placeholder { color: #80868b; } &:disabled { opacity: 0.7; } }
-  .btn-action { margin-left: auto; border: none; background-color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-}
-.summary-card {
-  background-color: #ffffff; border-radius: 8px; border: 1px solid #e8eaed; border-top: 3px solid #1a73e8; padding: 20px 24px;
-  &__title { font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; display: flex; align-items: center; letter-spacing: 0.1px; }
-  &__icon { width: 20px; height: 20px; margin-right: 8px; color: #1a73e8; }
-  &__content { background-color: #ffffff; border-radius: 4px; padding: 0; line-height: 1.625; :deep(strong) { color: #1a73e8; font-weight: 600; } }
-  &__actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; flex-wrap: wrap; }
-}
-.btn-action {
-  display: flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 4px; font-size: 13px; font-weight: 500; letter-spacing: 0.25px; color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-  &:hover { background-color: #e8f0fe; border-color: #1a73e8; }
-  &:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
-  &__icon { width: 16px; height: 16px; }
-}
-.meeting-table-wrapper { overflow-x: auto; }
-.meeting-table {
-  width: 100%; border-collapse: collapse; font-size: 14px; text-align: left; border: 1px solid #e8eaed; border-radius: 4px; overflow: hidden;
-  th, td { padding: 14px 16px; border-bottom: 1px solid #e8eaed; }
-  th { background-color: #e8f0fe; font-weight: 600; color: #1557b0; width: 22%; border-right: 1px solid #e8eaed; vertical-align: top; font-size: 13px; letter-spacing: 0.1px; }
-  td { color: #202124; vertical-align: top; line-height: 1.6; }
-  ul { margin: 0; padding-left: 18px; li { margin-bottom: 4px; &:last-child { margin-bottom: 0; } } }
-  tr:last-child th, tr:last-child td { border-bottom: none; }
-  .action-items-row th { color: #e37400; background-color: #fef7e0; }
-  
-  @media (max-width: 600px) {
-    display: block; border: none;
-    tbody, tr, th, td { display: block; box-sizing: border-box; width: 100%; }
-    tr { margin-bottom: 12px; border: 1px solid #e8eaed; border-radius: 8px; overflow: hidden; }
-    tr:last-child { margin-bottom: 0; }
-    th { border-bottom: none; border-right: none; padding: 12px 16px 4px; font-size: 12px; }
-    td { border-bottom: none; padding: 0 16px 16px; }
-  }
-}
-.alert {
-  border-radius: 4px; padding: 12px 16px; border: 1px solid transparent;
-  &__content { display: flex; align-items: center; }
-  &__icon { height: 20px; width: 20px; flex-shrink: 0; }
-  &__message { margin: 0 0 0 12px; font-size: 14px; }
-  &--warning { background-color: #fef7e0; border-color: #fdd663; .alert__icon { color: #FBBC04; } .alert__message { color: #e37400; } }
-  &--error { background-color: #fce8e6; border-color: #f5c6c6; .alert__icon { color: #EA4335; } .alert__message { color: #c5221f; } }
 }
 </style>

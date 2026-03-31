@@ -101,9 +101,9 @@ export const exportToExcel = (data: any, filename: string) => {
 }
 
 /**
- * Send content via Email using Resend via server API
+ * Send content via Email using Gmail SMTP via server API
  */
-export const sendEmail = async (recipientEmail: string, subjectLine: string, bodyText: string, data?: any) => {
+export const sendEmail = async (recipientEmail: string | string[], subjectLine: string, bodyText: string, data?: any) => {
   let htmlContent = '';
 
   if (data) {

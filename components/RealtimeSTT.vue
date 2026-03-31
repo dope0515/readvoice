@@ -48,15 +48,15 @@
     </div>
 
     <!-- 텍스트 결과 -->
-    <div v-if="transcriptionResult || isConverting" class="result-box" id="tabpanel-realtime" role="tabpanel" aria-labelledby="tab-realtime">
-      <h3 class="result-box__title">
-        <svg class="result-box__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <div v-if="transcriptionResult || isConverting" class="stt-result-card" id="tabpanel-realtime" role="tabpanel" aria-labelledby="tab-realtime">
+      <h3 class="stt-result-card__title">
+        <svg class="stt-result-card__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
         </svg>
         녹음 인식 결과
       </h3>
       
-      <div class="result-box__content">
+      <div class="stt-result-card__content">
         <div v-if="isConverting && !transcriptionResult" class="loading-dots">
           <div class="loading-dots__dot loading-dots__dot--1"></div>
           <div class="loading-dots__dot loading-dots__dot--2"></div>
@@ -86,9 +86,9 @@
         </template>
       </div>
 
-      <div v-if="transcriptionResult" class="result-box__actions">
+      <div v-if="transcriptionResult" class="stt-result-card__actions">
         <button @click="clearTranscription" class="btn-clear">초기화</button>
-        <div class="result-box__main-actions">
+        <div class="stt-result-card__main-actions">
           <button v-if="masterAudioBlob" @click="handleDownloadAudio" class="btn-secondary">오디오 다운로드</button>
           <button @click="copyToClipboard" class="btn-secondary">복사</button>
           <button
@@ -204,18 +204,42 @@
           <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
           TXT 저장
         </button>
-        <div class="email-export-wrapper">
-          <input 
-            v-model="recipientEmail" 
-            type="email" 
-            class="email-input" 
-            placeholder="받으실 이메일 주소"
-            :disabled="isSendingEmail"
-          />
-          <button @click="handleSendEmail" class="btn-action" :disabled="isSendingEmail || !recipientEmail">
-            <svg class="btn-action__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-            {{ isSendingEmail ? '발송 중...' : '메일 보내기' }}
-          </button>
+        <div class="email-chips-wrapper">
+          <!-- 상단: 입력된 칩들 -->
+          <div v-if="recipientEmails.length > 0" class="email-chips-display">
+            <div v-for="(email, index) in recipientEmails" :key="index" class="email-chip">
+              <span class="email-chip__text">{{ email }}</span>
+              <button @click="removeEmail(index)" class="email-chip__remove" aria-label="이메일 삭제">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 하단: 입력 영역 (단일 텍스트 입력창) -->
+          <div class="email-input-group">
+            <div class="email-input-fields">
+              <input 
+                v-model="currentEmailInput" 
+                type="email" 
+                class="email-full-input" 
+                placeholder="이메일 주소 입력 (예: name@company.com)"
+                :disabled="isSendingEmail"
+                @keydown.enter.prevent="addEmail"
+              />
+              <button @click="addEmail" class="btn-add-email" title="추가">
+                <svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+              </button>
+            </div>
+            
+            <button 
+              @click="handleSendEmail" 
+              class="btn-send-email" 
+              :disabled="isSendingEmail || recipientEmails.length === 0"
+            >
+              <svg class="btn-send-email__icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+              {{ isSendingEmail ? '발송 중...' : `모두에게 메일 보내기 (${recipientEmails.length})` }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -273,7 +297,8 @@ const masterAudioBlob = ref<Blob | null>(null)
 const attendeesInput = ref('')
 const isExportingPdf = ref(false)
 const isSendingEmail = ref(false)
-const recipientEmail = ref('')
+const recipientEmails = ref<string[]>([])
+const currentEmailInput = ref('')
 const summaryMode = ref<'summary' | 'meeting_minutes'>('summary')
 
 const visualizerCanvas = ref<HTMLCanvasElement | null>(null)
@@ -532,16 +557,39 @@ const handleExportExcel = () => {
   exportToExcel(parsedMeetingMinutes.value, getFormattedFilename())
 }
 
+const addEmail = () => {
+  const email = currentEmailInput.value.trim()
+  if (!email) return
+  
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email)) {
+    alert('유효한 이메일 형식이 아닙니다.')
+    return
+  }
+  
+  if (recipientEmails.value.includes(email)) {
+    currentEmailInput.value = ''
+    return
+  }
+  
+  recipientEmails.value.push(email)
+  currentEmailInput.value = ''
+}
+
+const removeEmail = (index: number) => {
+  recipientEmails.value.splice(index, 1)
+}
+
 const handleSendEmail = async () => {
-  if (!summaryResult.value || !recipientEmail.value) return
+  if (!summaryResult.value || recipientEmails.value.length === 0) return
   
   isSendingEmail.value = true
   errorMessage.value = ''
   
   try {
     const subject = summaryMode.value === 'meeting_minutes' ? '[회의록] 회의 결과' : '[AI 요약] 회의 내용'
-    await sendEmail(recipientEmail.value.trim(), subject, summaryResult.value, parsedMeetingMinutes.value)
-    alert('이메일이 성공적으로 발송되었습니다.\n(단, 무료 플랜인 경우 본인 계정 이메일로만 발송됩니다.)')
+    await sendEmail(recipientEmails.value, subject, summaryResult.value, parsedMeetingMinutes.value)
+    alert('이메일이 성공적으로 발송되었습니다.\n(단, 무료 플랜인 경우 인증된 계정으로만 발송될 수 있습니다.)')
   } catch (error: any) {
     console.error(error)
     errorMessage.value = error.message || '이메일 발송 중 오류가 발생했습니다.'
@@ -549,6 +597,7 @@ const handleSendEmail = async () => {
     isSendingEmail.value = false
   }
 }
+
 
 onUnmounted(() => {
   cleanupVisualizer()
@@ -560,17 +609,8 @@ onUnmounted(() => {
 
 <style lang="scss" scoped>
 .realtime-stt { display: flex; flex-direction: column; align-items: center; gap: 24px; padding: 12px 0; }
-
 .record-control { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
-
 .volume-visualizer { width: 200px; height: 40px; background: #f8f9fa; border-radius: 4px; overflow: hidden; canvas { width: 100%; height: 100%; } }
-
-.model-select {
-  display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; max-width: 320px;
-  &__label { font-size: 12px; font-weight: 500; color: #5f6368; letter-spacing: 0.3px; }
-  &__input { width: 100%; padding: 10px 14px; border-radius: 4px; border: 1px solid #dadce0; background-color: #ffffff; font-size: 14px; color: #202124; outline: none; transition: border-color 0.2s ease, box-shadow 0.15s ease; &:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.15); } &:disabled { background-color: #f8f9fa; color: #80868b; cursor: not-allowed; } }
-}
-
 .record-btn {
   width: 72px; height: 72px; border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   &__icon { width: 32px; height: 32px; }
@@ -578,105 +618,6 @@ onUnmounted(() => {
   &--recording { background-color: #ea4335; color: #ffffff; animation: pulse 1.5s infinite; &:hover { background-color: #d33426; } }
   &--disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
 }
-
 @keyframes pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.4); } 70% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(234, 67, 53, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); } }
-
 .record-timer { &__text { font-size: 24px; font-weight: 700; color: #202124; font-variant-numeric: tabular-nums; } }
-
-.result-box {
-  width: 100%; background-color: #ffffff; border-radius: 12px; border: 1px solid #e8eaed; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  &__title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; }
-  &__icon { width: 20px; height: 20px; color: #1a73e8; }
-  &__content { background-color: #f8f9fa; border-radius: 8px; padding: 20px; min-height: 120px; max-height: 500px; overflow-y: auto; border: 1px solid #f1f3f4; }
-  &__actions { margin-top: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-  &__main-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-}
-
-.transcription-paragraphs { display: flex; flex-direction: column; gap: 12px; }
-.transcription-para { color: #202124; line-height: 1.75; font-size: 14px; margin: 0; padding-bottom: 12px; border-bottom: 1px solid #e8eaed; &:last-child { border-bottom: none; padding-bottom: 0; } }
-
-.diarization-view { display: flex; flex-direction: column; gap: 10px; }
-.diarization-segment {
-  display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border-radius: 4px; border-left: 3px solid;
-  &--0 { background-color: #e8f0fe; border-left-color: #4285F4; .diarization-segment__speaker { color: #1557b0; } }
-  &--1 { background-color: #e6f4ea; border-left-color: #34A853; .diarization-segment__speaker { color: #137333; } }
-  &--2 { background-color: #fef7e0; border-left-color: #FBBC04; .diarization-segment__speaker { color: #e37400; } }
-  &--3 { background-color: #fce8e6; border-left-color: #EA4335; .diarization-segment__speaker { color: #c5221f; } }
-  &--4 { background-color: #f3e8fd; border-left-color: #9334E6; .diarization-segment__speaker { color: #7627bb; } }
-  &__speaker { font-size: 11px; font-weight: 600; text-transform: uppercase; }
-  &__text { color: #202124; line-height: 1.65; margin: 0; font-size: 14px; }
-}
-
-.btn-format, .btn-diarize { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: 500; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; transition: all 0.15s ease; &:disabled { opacity: 0.5; cursor: not-allowed; } }
-.btn-format { color: #1a73e8; &:hover { background-color: #e8f0fe; border-color: #1a73e8; } }
-.btn-diarize { color: #34A853; &:hover { background-color: #e6f4ea; border-color: #34A853; } }
-.btn-icon { width: 16px; height: 16px; flex-shrink: 0; }
-
-.meeting-minutes-wrapper {
-  display: flex; align-items: center; gap: 6px; background-color: #f8f9fa; padding: 3px 3px 3px 12px; border-radius: 4px; border: 1px solid #dadce0;
-  .attendees-input { border: none; background: transparent; font-size: 13px; color: #202124; outline: none; width: 150px; &::placeholder { color: #80868b; } }
-}
-
-.btn-primary {
-  padding: 7px 16px; font-size: 13px; font-weight: 500; border-radius: 4px; background-color: #34A853; color: #ffffff; border: none; cursor: pointer;
-  &:hover { background-color: #2d8f47; }
-  &--dark { background-color: #1a73e8; &:hover { background-color: #1557b0; } }
-  &--disabled { background-color: #dadce0; color: #80868b; cursor: not-allowed; }
-}
-
-.btn-secondary, .btn-clear { padding: 7px 16px; font-size: 13px; font-weight: 500; border-radius: 4px; cursor: pointer; transition: all 0.15s ease; }
-.btn-secondary { color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; &:hover { background-color: #f8f9fa; border-color: #1a73e8; } }
-.btn-clear { color: #5f6368; background-color: transparent; border: 1px solid #dadce0; &:hover { background-color: #f1f3f4; } }
-
-.email-export-wrapper {
-  display: flex; align-items: center; gap: 6px; background-color: #f8f9fa; padding: 2px 2px 2px 12px; border-radius: 4px; border: 1px solid #dadce0; transition: border-color 0.15s ease; &:focus-within { border-color: #1a73e8; }
-  .email-input { border: none; background: transparent; font-size: 13px; color: #202124; outline: none; width: 140px; &::placeholder { color: #80868b; } &:disabled { opacity: 0.7; } }
-  .btn-action { margin-left: auto; border: none; background-color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-}
-
-.summary-card {
-  width: 100%; background-color: #ffffff; border-radius: 12px; border: 1px solid #e8eaed; border-top: 4px solid #1a73e8; padding: 24px;
-  &__title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; color: #202124; margin: 0 0 16px 0; }
-  &__icon { width: 20px; height: 20px; color: #1a73e8; }
-  &__content { font-size: 14px; line-height: 1.6; :deep(strong) { color: #1a73e8; } }
-  &__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-}
-
-.btn-action { display: flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 4px; font-size: 13px; font-weight: 500; color: #1a73e8; background-color: transparent; border: 1px solid #dadce0; cursor: pointer; &:hover { background-color: #f8f9fa; } &:disabled { opacity: 0.5; } }
-
-.meeting-table-wrapper { overflow-x: auto; margin-top: 12px; }
-.meeting-table {
-  width: 100%; border-collapse: collapse; border: 1px solid #e8eaed;
-  th, td { padding: 14px; border-bottom: 1px solid #e8eaed; font-size: 14px; }
-  th { background-color: #f8f9fa; color: #5f6368; width: 120px; text-align: left; vertical-align: top; }
-  td { color: #202124; }
-  .action-items-row th { background-color: #fef7e0; color: #e37400; }
-  
-  @media (max-width: 600px) {
-    display: block; border: none;
-    tbody, tr, th, td { display: block; box-sizing: border-box; width: 100%; }
-    tr { margin-bottom: 12px; border: 1px solid #e8eaed; border-radius: 8px; overflow: hidden; }
-    tr:last-child { margin-bottom: 0; }
-    th { border-bottom: none; border-right: none; padding: 12px 14px 4px; font-size: 12px; }
-    td { border-bottom: none; padding: 0 14px 14px; }
-  }
-}
-
-.alert {
-  width: 100%; border-radius: 8px; padding: 12px 16px; display: flex; align-items: center; gap: 12px;
-  &--info { background-color: #e8f0fe; color: #1a73e8; border: 1px solid #d2e3fc; }
-  &--warning { background-color: #fef7e0; color: #e37400; border: 1px solid #feefc3; }
-  &--error { background-color: #fce8e6; color: #d93025; border: 1px solid #fad2cf; }
-  &__icon { width: 20px; height: 20px; flex-shrink: 0; }
-  &__message { margin: 0; font-size: 14px; }
-}
-
-.loading-dots {
-  display: flex; justify-content: center; gap: 4px; padding: 20px 0;
-  &__dot {
-    width: 8px; height: 8px; background-color: #dadce0; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out;
-    &--1 { animation-delay: -0.32s; } &--2 { animation-delay: -0.16s; }
-  }
-}
-@keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
 </style>

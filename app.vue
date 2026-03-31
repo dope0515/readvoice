@@ -140,6 +140,9 @@ const changeTab = (tabId: string) => { activeTab.value = tabId }
     border: 1px solid #e8eaed;
     box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
     padding: 32px 28px;
+    @media screen and (max-width: 768px) {
+      padding: 12px;
+    }
   }
 
   &__content {
